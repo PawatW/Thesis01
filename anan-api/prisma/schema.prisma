@@ -1,0 +1,875 @@
+// ============================================================
+// ANAN — Prisma schema (source of truth ของ database)
+// เอกสาร: docs/database-schema.md · docs/architecture.md
+//
+// กฎ (CLAUDE.md ข้อ 4):
+//   - แก้ schema ที่ไฟล์นี้เท่านั้น แล้ว `npx prisma migrate dev`
+//   - ชื่อใน DB เป็น snake_case (@map/@@map) · ชื่อใน TS เป็น camelCase
+//   - CHECK constraint ที่ Prisma เขียนไม่ได้ อยู่ใน migration
+//     `..._check_constraints` — ห้ามลบ (ดู docs/security-design.md L5)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// ENUMS — ความถูกต้องของค่าบังคับที่ระดับ DB (ไม่ใช่แค่ DTO)
+// ชื่อ enum member = ค่าจริงใน DB = ค่าที่ส่งออก API (ไม่มีชั้นแปลง)
+//
+// ข้อยกเว้นเดียว: `cycle` ยังเป็น text + CHECK เพราะค่า '2w'/'1m'/'2m'
+// ขึ้นต้นด้วยตัวเลข ซึ่งเป็นชื่อ identifier ของ Prisma enum ไม่ได้ —
+// และการเปลี่ยนค่าจะทำให้ spec 17 ไฟล์กับโค้ดฝั่งแอปไม่ตรงกัน
+// ------------------------------------------------------------
+
+enum SubscriptionStatus {
+  active
+  paused
+  cancelled
+
+  @@map("subscription_status")
+}
+
+/// user = ผู้ซื้อกดหยุดเอง (resume ได้) · shop_suspended = ระบบแช่แข็งเพราะร้านถูกระงับ (ผู้ซื้อ resume ไม่ได้)
+enum PausedReason {
+  user
+  shop_suspended
+
+  @@map("paused_reason")
+}
+
+enum SubscriptionEventType {
+  created
+  paused
+  resumed
+  skipped
+  rescheduled
+  cycle_changed
+  address_changed
+  cancelled
+  order_cancelled
+  reviewed
+  price_changed
+  coupon_applied
+  coupon_released
+
+  @@map("subscription_event_type")
+}
+
+/// ระดับของคูปอง — ตัวที่บอกว่า "ใครเป็นคนออก" และ "ซ้อนกับใบไหนได้"
+///
+/// 1 รอบใช้ได้ **ระดับละ 1 ใบ** (partial unique `coupon_one_per_cycle_tier`)
+/// จึงซ้อนได้สูงสุด 2 ใบต่อรอบ — โมเดลเดียวกับ marketplace ไทยทั่วไป
+///
+/// เก็บเป็นคอลัมน์จริงแทนที่จะ derive จาก `shop_id IS NULL` เพราะ partial unique
+/// ต้องเกาะคอลัมน์ และ `coupon_redemptions` ต้อง snapshot ระดับไว้ตอนจองด้วย
+enum CouponTier {
+  platform
+  shop
+
+  @@map("coupon_tier")
+}
+
+/// สินค้าชิ้นนี้เปิดรับคูปองระดับไหนบ้าง — **ร้านตั้งเองรายสินค้า**
+///
+/// เป็นด่านสุดท้ายที่อยู่ฝั่งสินค้า ไม่ใช่ฝั่งคูปอง: ต่อให้คูปองครอบสินค้าชิ้นนี้ไว้
+/// ถ้านโยบายของชิ้นนั้นไม่รับระดับนั้น ก็ใช้ไม่ได้ · มีไว้ให้ร้านกันสินค้ากำไรบางไม่ให้
+/// ถูกลดซ้อนสองชั้นโดยไม่ต้องถอนออกจากแคมเปญทั้งใบ
+enum CouponPolicy {
+  /// รับทั้งคูปองแพลตฟอร์มและคูปองร้าน — ซ้อนกันได้
+  both
+  /// รับเฉพาะคูปองของแพลตฟอร์ม
+  platform_only
+  /// รับเฉพาะคูปองของร้านเอง
+  shop_only
+  /// ไม่รับคูปองเลย
+  none
+
+  @@map("coupon_policy")
+}
+
+/// ชนิดของส่วนลด — `percent` คิดเป็น % ของยอดรอบนั้น · `fixed` เป็นจำนวนเงินตายตัว
+enum CouponDiscountType {
+  percent
+  fixed
+
+  @@map("coupon_discount_type")
+}
+
+/// วงจรชีวิตของการ "จอง" คูปองไว้กับรอบหนึ่ง (feature 18)
+///
+/// ต่างจาก e-commerce ที่คูปองถูกใช้ตอน checkout ทันที: ที่นี่ผู้ซื้อจองล่วงหน้า
+/// แล้ว engine เป็นคนใช้จริงตอนตี 1 ของวันตัดรอบ ระหว่างนั้นรอบอาจไม่เกิดขึ้นเลย
+/// (skip/pause/cancel/ร้านถูกระงับ) จึงต้องมีปลายทางที่คืนโควตาให้คนอื่นได้
+enum CouponRedemptionStatus {
+  reserved
+  consumed
+  released
+
+  @@map("coupon_redemption_status")
+}
+
+/// เหตุที่คูปองถูกคืน — enum ไม่ใช่ text ด้วยเหตุผลเดียวกับ `AuditAction`
+/// และเพราะสองค่าท้ายเป็นการคืนที่ **ระบบ** เป็นคนทำ จึงต้องแจ้งเตือนผู้ซื้อ
+/// ส่วนสองค่าแรกผู้ซื้อเป็นคนกดเอง ไม่ต้องแจ้ง
+enum CouponReleaseReason {
+  /// ผู้ซื้อกดถอนคูปองออกจากรอบเอง
+  user_removed
+  /// รอบที่จองไว้ไม่เกิดแล้ว — skip / pause / เลื่อนวันส่ง / เปลี่ยนรอบส่ง / ยกเลิก
+  cycle_changed
+  /// admin ระงับร้านหรือสินค้า → subscription ถูกแช่แข็ง
+  shop_suspended
+  /// ตอนตัดเงินจริง ยอดรอบนั้นต่ำกว่าขั้นต่ำของคูปอง (ร้านลดราคาลงหลังจอง)
+  min_order_not_met
+
+  @@map("coupon_release_reason")
+}
+
+enum OrderStatus {
+  pending
+  preparing
+  shipped
+  delivered
+  cancelled
+
+  @@map("order_status")
+}
+
+enum PaymentStatus {
+  paid
+  failed
+  refunded
+
+  @@map("payment_status")
+}
+
+/// ชนิดของวิธีชำระเงินที่ผูกกับบัญชี — ตอนนี้มีบัตรอย่างเดียว
+enum PaymentMethodKind {
+  card
+
+  @@map("payment_method_kind")
+}
+
+/// เครือข่ายบัตร — ได้จาก BIN (6 หลักแรก) ที่ฝั่งแอป แล้วส่งมาแค่ "ชื่อเครือข่าย"
+/// เป็นข้อมูลสำหรับ "แสดงผล" ล้วน ๆ ไม่ได้ใช้ตัดสินเงินหรือสิทธิ์ใด ๆ
+enum CardBrand {
+  visa
+  mastercard
+  jcb
+  amex
+  unionpay
+  unknown
+
+  @@map("card_brand")
+}
+
+enum OrderIssueType {
+  not_received
+  wrong_item
+  damaged
+  other
+
+  @@map("order_issue_type")
+}
+
+enum OrderIssueStatus {
+  open
+  resolved
+  rejected
+
+  @@map("order_issue_status")
+}
+
+/// เหตุผลที่ refresh token ถูกเพิกถอน — แยก "หมุนตามปกติ" ออกจาก "ผู้ใช้กด logout"
+/// เพราะมีเฉพาะแบบแรกเท่านั้นที่การถูกใช้ซ้ำแปลว่า token รั่ว (ดู security-design §5 A-8)
+///
+/// `password_reset` = ตั้งรหัสใหม่แล้วทุกเครื่องต้องหลุด (จุดประสงค์ทั้งหมดของการรีเซ็ต
+/// คือเตะคนที่ถือรหัสเก่าออก) — ใบพวกนี้ถูกใช้ซ้ำแล้ว **ไม่** ถือว่ารั่วเหมือน `logout`
+enum RefreshTokenRevokedReason {
+  rotated
+  logout
+  reuse
+  password_reset
+
+  @@map("refresh_token_revoked_reason")
+}
+
+/// การกระทำที่ต้องมีร่องรอย — enum ไม่ใช่ text เพราะการเพิ่มค่าใหม่ควรเป็น
+/// การตัดสินใจที่ต้องผ่าน migration ไม่ใช่การพิมพ์สตริงใหม่ลงไปเงียบ ๆ
+/// (สตริงที่พิมพ์ผิดจะกลายเป็น action ใหม่ที่ไม่มีใครกรองเจอตลอดกาล)
+enum AuditAction {
+  shop_suspended
+  shop_unsuspended
+  product_suspended
+  product_unsuspended
+  category_created
+  category_updated
+  category_deleted
+  mail_settings_updated
+  engine_run_manual
+  password_reset_completed
+  coupon_created
+  coupon_updated
+  coupon_deactivated
+
+  @@map("audit_action")
+}
+
+/// ผลของการส่งอีเมล 1 ฉบับ — `skipped` = เครื่องนี้ยังไม่ได้ตั้ง SMTP
+/// (ไม่ใช่ความล้มเหลว แต่ก็ไม่ใช่การส่งสำเร็จ ต้องแยกออกจากกันให้เห็น)
+enum EmailLogStatus {
+  sent
+  failed
+  skipped
+
+  @@map("email_log_status")
+}
+
+enum NotificationType {
+  upcoming_cycle
+  order_created
+  order_status
+  price_changed
+  subscription_frozen
+  subscription_resumed
+  new_subscriber
+  subscriber_cancelled
+  engine_summary
+  coupon_released
+
+  @@map("notification_type")
+}
+
+// ------------------------------------------------------------
+// 1. USER DOMAIN
+// ------------------------------------------------------------
+
+/// รวม auth.users + profiles ของสถาปัตยกรรมเดิมเข้าเป็นตารางเดียว
+/// (ตอนนี้เราเป็นเจ้าของ auth เอง จึงไม่มีสคีมา auth แยก)
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// เก็บเป็นตัวพิมพ์เล็กเสมอ — normalize ใน AuthService + CHECK ที่ DB
+  email        String   @unique
+  /// bcrypt cost 12 — ห้ามมีคอลัมน์รหัสผ่านแบบ plaintext ในระบบ
+  passwordHash String   @map("password_hash")
+  displayName  String   @map("display_name")
+  phone        String?
+  avatarUrl    String?  @map("avatar_url")
+  /// ยกระดับสิทธิ์ได้จาก service เท่านั้น — ห้ามรับจาก DTO (mass assignment)
+  isSeller     Boolean  @default(false) @map("is_seller")
+  isAdmin      Boolean  @default(false) @map("is_admin")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  addresses           Address[]
+  paymentMethods      PaymentMethod[]
+  refreshTokens       RefreshToken[]
+  passwordResets      PasswordResetToken[]
+  shop                Shop?
+  subscriptions       Subscription[]
+  notifications       Notification[]
+  reviews             Review[]
+  issuesReported      OrderIssue[]         @relation("IssueReporter")
+  issuesResolved      OrderIssue[]         @relation("IssueResolver")
+  auditLogs           AuditLog[]
+  mailSettingEdits    MailSetting[]        @relation("MailSettingsUpdatedBy")
+  couponsCreated      Coupon[]             @relation("CouponCreatedBy")
+  couponProductsOpted CouponProduct[]      @relation("CouponProductEnabledBy")
+
+  @@map("users")
+}
+
+/// refresh token แบบ rotate: เก็บเฉพาะ hash — DB หลุดแล้วยังสวมสิทธิ์ไม่ได้
+model RefreshToken {
+  id            String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String                     @map("user_id") @db.Uuid
+  /// sha256 ของ token — ไม่เก็บตัว token
+  tokenHash     String                     @unique @map("token_hash")
+  expiresAt     DateTime                   @map("expires_at") @db.Timestamptz(6)
+  revokedAt     DateTime?                  @map("revoked_at") @db.Timestamptz(6)
+  /// null เมื่อยังใช้ได้อยู่ — บังคับให้ตรงกับ revokedAt ด้วย CHECK
+  revokedReason RefreshTokenRevokedReason? @map("revoked_reason")
+  createdAt     DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// ตั๋วรีเซ็ตรหัสผ่านที่ส่งไปทางอีเมล — เก็บเฉพาะ sha256 เหมือน refresh token
+/// (DB หลุดแล้วยังตั้งรหัสใหม่ให้คนอื่นไม่ได้ เพราะตัว token จริงอยู่ในกล่องเมลเท่านั้น)
+///
+/// `usedAt` ครอบสองความหมาย: "ถูกใช้ตั้งรหัสใหม่ไปแล้ว" กับ "ถูกแทนที่เพราะเจ้าของ
+/// กดขอลิงก์ใหม่" — ทั้งคู่แปลว่าใบนี้ใช้ไม่ได้อีกแล้ว และไม่มีกรณีไหนที่การถูกใช้ซ้ำ
+/// แปลว่า token รั่ว (ต่างจาก refresh token) จึงไม่ต้องแยก reason เหมือน A-8
+model PasswordResetToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  /// sha256 ของ token — ไม่เก็บตัว token
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+model Address {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  label         String?
+  recipientName String   @map("recipient_name")
+  phone         String
+  addressLine   String   @map("address_line")
+  province      String
+  postcode      String
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+/// บัตรที่ผู้ใช้ผูกไว้กับบัญชี — เก็บ "ร่องรอยของบัตร" ชุดเดียวกับที่ผู้ให้บริการ
+/// ชำระเงินจริงเก็บไว้หลัง tokenization: เครือข่าย · 4 ตัวท้าย · เดือน/ปีหมดอายุ ·
+/// ชื่อบนบัตร
+///
+/// ★ เลขบัตรเต็มกับ CVV ไม่มีอยู่ในตารางนี้ ไม่มีใน log และไม่เคยถูกส่งขึ้น network ★
+/// (CLAUDE.md กฎข้อ 1 + security-rules C-2) — เลข 16 หลักอยู่แค่ในตัวแปร local ของ
+/// ฟอร์มบนเครื่องผู้ใช้ เพื่อคำนวณ Luhn/BIN แล้วถูกทิ้งก่อนยิง request
+model PaymentMethod {
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String            @map("user_id") @db.Uuid
+  kind       PaymentMethodKind @default(card)
+  brand      CardBrand         @default(unknown)
+  last4      String            @db.Char(4)
+  /// เดือน/ปีหมดอายุ (ค.ศ.) — 1..12 และ 2000..2100 บังคับด้วย CHECK ที่ DB
+  expMonth   Int               @map("exp_month")
+  expYear    Int               @map("exp_year")
+  holderName String?           @map("holder_name")
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  /// บัตรใบเดิมผูกซ้ำไม่ได้ — ผู้ให้บริการจริงกันด้วย fingerprint ของเลขบัตร
+  /// ที่นี่ไม่มีเลขเต็มให้ hash จึงใช้ชุดที่เก็บไว้จริง (4 ตัวท้าย + วันหมดอายุ) แทน
+  @@unique([userId, last4, expMonth, expYear], map: "payment_methods_user_card_uq")
+  @@index([userId])
+  @@map("payment_methods")
+}
+
+// ------------------------------------------------------------
+// 2. CATALOG DOMAIN
+// ------------------------------------------------------------
+
+model Shop {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 1 บัญชี = 1 ร้าน
+  ownerId         String    @unique @map("owner_id") @db.Uuid
+  name            String
+  logoUrl         String?   @map("logo_url")
+  description     String?
+  /// เจ้าของร้านปิดร้านเอง (ต่างจาก suspendedAt ที่เป็นการระงับโดย admin)
+  isActive        Boolean   @default(true) @map("is_active")
+  /// admin เท่านั้นที่เขียนได้ — ร้านปลดแบนตัวเองไม่ได้
+  suspendedAt     DateTime? @map("suspended_at") @db.Timestamptz(6)
+  suspendedReason String?   @map("suspended_reason")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  products Product[]
+  /// คูปองที่ร้านนี้ออกเอง (feature 18 · tier = shop)
+  coupons  Coupon[]
+
+  @@map("shops")
+}
+
+model Category {
+  id        Int     @id @default(autoincrement())
+  name      String  @unique
+  icon      String?
+  sortOrder Int     @default(0) @map("sort_order")
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shopId          String       @map("shop_id") @db.Uuid
+  categoryId      Int          @map("category_id")
+  name            String
+  description     String?
+  images          String[]     @default([])
+  /// ราคาซื้อครั้งเดียว — ใช้เทียบให้เห็นส่วนลดของการสมัครรอบ
+  oneTimePrice    Decimal      @map("one_time_price") @db.Decimal(10, 2)
+  /// ปริมาณสุทธิ เช่น 250 (คู่กับ unit) สำหรับเทียบราคาต่อหน่วย
+  netAmount       Decimal?     @map("net_amount") @db.Decimal(10, 2)
+  unit            String?
+  isActive        Boolean      @default(true) @map("is_active")
+  /// ★ ร้านตั้งเองรายสินค้า ★ สินค้าชิ้นนี้เปิดรับคูปองระดับไหนบ้าง (feature 18)
+  ///
+  /// ด่านนี้อยู่ฝั่ง "สินค้า" ไม่ใช่ฝั่ง "คูปอง" — ต่อให้คูปองครอบชิ้นนี้ไว้
+  /// ถ้านโยบายของชิ้นนั้นไม่รับระดับนั้นก็ใช้ไม่ได้ (ดู `CouponPolicy`)
+  couponPolicy    CouponPolicy @default(both) @map("coupon_policy")
+  /// admin เท่านั้น
+  suspendedAt     DateTime?    @map("suspended_at") @db.Timestamptz(6)
+  suspendedReason String?      @map("suspended_reason")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  shop     Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  category Category        @relation(fields: [categoryId], references: [id])
+  plans    ProductPlan[]
+  reviews  Review[]
+  coupons  CouponProduct[]
+
+  @@index([categoryId])
+  @@index([shopId])
+  @@map("products")
+}
+
+model ProductPlan {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  /// '2w' | '1m' | '2m' — บังคับด้วย CHECK (ดูหมายเหตุเรื่อง enum ด้านบน)
+  cycle         String
+  pricePerCycle Decimal  @map("price_per_cycle") @db.Decimal(10, 2)
+  qtyPerCycle   Int      @default(1) @map("qty_per_cycle")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@unique([productId, cycle])
+  @@index([productId])
+  @@map("product_plans")
+}
+
+// ------------------------------------------------------------
+// 3. SUBSCRIPTION CORE
+// ------------------------------------------------------------
+
+model Subscription {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  buyerId         String             @map("buyer_id") @db.Uuid
+  /// ไม่ cascade: ห้ามลบแผนที่ยังมีสมาชิก
+  planId          String             @map("plan_id") @db.Uuid
+  addressId       String             @map("address_id") @db.Uuid
+  paymentMethodId String             @map("payment_method_id") @db.Uuid
+  status          SubscriptionStatus @default(active)
+  pausedReason    PausedReason?      @map("paused_reason")
+  quantity        Int                @default(1)
+  startDate       DateTime           @map("start_date") @db.Date
+  /// ★ หมุดของ "กริดรอบ" ★ ทุกวันตัดรอบคือ anchor + k×cycle เสมอ
+  ///
+  /// มีคอลัมน์นี้เพราะการบวกรอบทบจาก next_order_date เดิมทำให้วันตัดเงินยุบ:
+  /// สมัครวันที่ 31 ม.ค. รายเดือน → 28 ก.พ. → (ถ้าบวกทบ) 28 มี.ค. → 28 เม.ย. ถาวร
+  /// engine จึงคิดจาก anchor เสมอ (`addCycles(anchor, cycle, k)`) — ดู common/date.ts
+  ///
+  /// เริ่มเท่ากับ startDate แล้วขยับเฉพาะ action ที่ "นิยามรอบใหม่" ตาม W05:
+  /// เลื่อนวันส่ง · กลับมาใช้งาน · เปลี่ยนรอบส่ง (skip ไม่ขยับ — แค่ข้ามไป 1 ช่องบนกริดเดิม)
+  cycleAnchorDate DateTime           @map("cycle_anchor_date") @db.Date
+  /// null เมื่อ cancelled — บังคับด้วย CHECK subs_state_consistent
+  nextOrderDate   DateTime?          @map("next_order_date") @db.Date
+  pausedAt        DateTime?          @map("paused_at") @db.Timestamptz(6)
+  cancelledAt     DateTime?          @map("cancelled_at") @db.Timestamptz(6)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  buyer             User                @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  plan              ProductPlan         @relation(fields: [planId], references: [id])
+  address           Address             @relation(fields: [addressId], references: [id])
+  paymentMethod     PaymentMethod       @relation(fields: [paymentMethodId], references: [id])
+  orders            Order[]
+  events            SubscriptionEvent[]
+  review            Review?
+  couponRedemptions CouponRedemption[]
+
+  /// รองรับ composite FK ของ orders — ทำให้ orders.buyer_id ผิดจากเจ้าของจริงไม่ได้
+  @@unique([id, buyerId])
+  @@index([buyerId])
+  @@index([nextOrderDate])
+  @@map("subscriptions")
+}
+
+/// audit trail + แหล่งข้อมูล churn analysis ของ thesis
+model SubscriptionEvent {
+  id             Int                   @id @default(autoincrement())
+  subscriptionId String                @map("subscription_id") @db.Uuid
+  event          SubscriptionEventType
+  detail         Json?
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@map("subscription_events")
+}
+
+// ------------------------------------------------------------
+// 4. FULFILLMENT
+// ------------------------------------------------------------
+
+model Order {
+  id                   String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subscriptionId       String      @map("subscription_id") @db.Uuid
+  /// ซ้ำจาก subscription โดยตั้งใจ เพื่อให้ ownership check เขียนเป็น where เดียวได้
+  /// ไม่ใช่ข้อมูลลอย — เป็นส่วนหนึ่งของ FK คู่ (subscription_id, buyer_id) ข้างล่าง
+  /// จึงเป็นไปไม่ได้ที่ค่าจะเพี้ยนไปจากเจ้าของจริงของ subscription
+  buyerId              String      @map("buyer_id") @db.Uuid
+  cycleDate            DateTime    @map("cycle_date") @db.Date
+  status               OrderStatus @default(pending)
+  /// ★ ยอดที่ตัดจริง (หลังหักคูปองแล้ว) ★ ความหมายนี้ห้ามเปลี่ยน — `retryPayment`,
+  /// การคืนเงินของร้าน, ใบเสร็จ และแท็บออเดอร์ของร้าน อ่านค่านี้เป็น "เงินที่เคลื่อนไหวจริง"
+  amount               Decimal     @db.Decimal(10, 2)
+  /// ส่วนลดจากคูปองของรอบนี้ (feature 18) — ยอดก่อนลด = amount + discountAmount
+  /// แยกคอลัมน์แทนการเปลี่ยนความหมายของ `amount` ทำให้ท้ายน้ำทั้งหมดไม่ต้องแก้เลย
+  discountAmount       Decimal     @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  /// ใบจองคูปองที่ถูกใช้กับรอบนี้ — **แยกช่องตามระดับ** เพราะซ้อนได้ 2 ใบ
+  /// CHECK `orders_discount_needs_redemption` บังคับว่ามีส่วนลดเมื่อไหร่
+  /// ต้องชี้กลับไปได้เสมอว่ามาจากคูปองใบไหน (อย่างน้อยหนึ่งช่อง)
+  ///
+  /// แยกเป็นสองคอลัมน์แทนที่จะย้าย FK ไปฝั่ง `coupon_redemptions.order_id`
+  /// เพราะจำนวนช่องที่ตายตัวคือการบังคับเพดาน "ซ้อนได้ไม่เกิน 2 ระดับ" ที่ DB เอง
+  platformRedemptionId String?     @unique @map("platform_redemption_id") @db.Uuid
+  shopRedemptionId     String?     @unique @map("shop_redemption_id") @db.Uuid
+  /// คัดลอกที่อยู่ ณ เวลาสร้าง — แก้ที่อยู่ทีหลังต้องไม่ย้อนไปแก้ประวัติ
+  addressSnapshot      Json        @map("address_snapshot")
+  trackingNote         String?     @map("tracking_note")
+  /// เวลาที่ของออกจากร้านจริง — engine ใช้ตัวนี้นับ 7 วันก่อนปิดออเดอร์ให้อัตโนมัติ
+  /// (ใช้ `cycle_date` แทนไม่ได้: นั่นคือวันตัดรอบ ไม่ใช่วันที่ส่ง — ออเดอร์ที่ร้าน
+  /// ส่งช้าจะถูกปิดให้ก่อนของถึงมือด้วยซ้ำ)
+  shippedAt            DateTime?   @map("shipped_at") @db.Timestamptz(6)
+  cancelledAt          DateTime?   @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason         String?     @map("cancel_reason")
+  /// ผู้ซื้อกดยืนยันรับของ — สัญญาณเดียวที่เชื่อได้ว่าของถึงจริง (ร้านตั้ง delivered เองได้)
+  confirmedAt          DateTime?   @map("confirmed_at") @db.Timestamptz(6)
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  subscription       Subscription      @relation(fields: [subscriptionId, buyerId], references: [id, buyerId])
+  payment            Payment?
+  issue              OrderIssue?
+  /// ★ Restrict ไม่ใช่ SetNull ★ ถ้าปล่อยให้ลบใบจองแล้วคอลัมน์กลายเป็น NULL
+  /// ออเดอร์จะเหลือ `discount_amount > 0` โดยไม่มีที่มา ซึ่งผิด CHECK
+  /// `orders_discount_needs_redemption` ทันที — ต้องลบออเดอร์ก่อนเสมอ
+  platformRedemption CouponRedemption? @relation("OrderPlatformCoupon", fields: [platformRedemptionId], references: [id], onDelete: Restrict)
+  shopRedemption     CouponRedemption? @relation("OrderShopCoupon", fields: [shopRedemptionId], references: [id], onDelete: Restrict)
+
+  /// idempotency ของ recurring engine — รันซ้ำวันเดิมชนอันนี้แล้วข้าม
+  @@unique([subscriptionId, cycleDate])
+  @@index([buyerId])
+  @@index([status])
+  @@map("orders")
+}
+
+/// การตัดเงินจำลอง — 1 ออเดอร์ต่อ 1 รายการจ่าย
+model Payment {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId    String        @unique @map("order_id") @db.Uuid
+  amount     Decimal       @db.Decimal(10, 2)
+  status     PaymentStatus
+  paidAt     DateTime?     @map("paid_at") @db.Timestamptz(6)
+  refundedAt DateTime?     @map("refunded_at") @db.Timestamptz(6)
+  createdAt  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+/// ช่องทางแจ้งปัญหาของผู้ซื้อ — 1 เคสเปิดค้างได้ 1 เคสต่อออเดอร์
+model OrderIssue {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId        String           @unique @map("order_id") @db.Uuid
+  reporterId     String           @map("reporter_id") @db.Uuid
+  type           OrderIssueType
+  detail         String
+  status         OrderIssueStatus @default(open)
+  resolutionNote String?          @map("resolution_note")
+  resolvedAt     DateTime?        @map("resolved_at") @db.Timestamptz(6)
+  resolvedBy     String?          @map("resolved_by") @db.Uuid
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order    Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reporter User  @relation("IssueReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolver User? @relation("IssueResolver", fields: [resolvedBy], references: [id])
+
+  @@index([status, createdAt(sort: Desc)])
+  @@map("order_issues")
+}
+
+/// รีวิวจากคนที่ได้รับของจริงเท่านั้น — 1 รีวิวต่อ 1 subscription
+/// cyclesReceived คือ snapshot ตอนเขียน: "รีวิวหลังรับมา 4 รอบ" คือสัญญาณที่ marketplace ซื้อครั้งเดียวให้ไม่ได้
+model Review {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subscriptionId String   @unique @map("subscription_id") @db.Uuid
+  productId      String   @map("product_id") @db.Uuid
+  buyerId        String   @map("buyer_id") @db.Uuid
+  rating         Int
+  comment        String?
+  cyclesReceived Int      @default(1) @map("cycles_received")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  buyer        User         @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  @@index([productId, createdAt(sort: Desc)])
+  @@map("reviews")
+}
+
+// ------------------------------------------------------------
+// 5. COUPONS (feature 18 · W13)
+//
+// ★ คูปองที่นี่เป็นของที่ "จองไว้กับรอบ" ไม่ใช่ของที่ "ใช้แล้วจบ" ★
+// เพราะรอบที่ 2 เป็นต้นไป engine เป็นคนสร้างออเดอร์ตอนตี 1 โดยผู้ซื้อไม่อยู่
+// ผู้ซื้อจึงต้องจองล่วงหน้า แล้ว engine เป็นคนใช้จริง
+//
+// สามชั้น: admin ออกคูปอง → ร้านติ๊กสินค้าเข้าร่วมเอง (= ร้านรับภาระส่วนลด
+// โดยสมัครใจ ทำให้ไม่ต้องมีโมเดลส่วนแบ่งรายได้) → ผู้ซื้อจองกับรอบ
+// ------------------------------------------------------------
+
+/// แคมเปญคูปองที่ผู้ดูแลแพลตฟอร์มออก
+model Coupon {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// ตัวพิมพ์ใหญ่ล้วน — normalize ที่ service + CHECK รูปแบบที่ DB
+  ///
+  /// unique ทั้งตาราง (ไม่ใช่ unique ต่อร้าน) เพราะผู้ซื้อพูดถึงคูปองด้วย "โค้ด"
+  /// โค้ดเดียวกันสองใบคนละร้านจะทำให้ใบเสร็จกับหน้าจออธิบายกันไม่รู้เรื่อง
+  code                 String             @unique
+  /// ★ ระดับของคูปอง ★ platform = ผู้ดูแลออก · shop = ร้านออกเอง
+  tier                 CouponTier         @default(platform)
+  /// ร้านเจ้าของคูปอง — NULL เมื่อ tier = platform (CHECK บังคับให้ตรงกับ tier)
+  shopId               String?            @map("shop_id") @db.Uuid
+  /// เฉพาะคูปองของร้าน: true = ครอบทุกสินค้าของร้านนี้ (รวมที่เพิ่มทีหลัง)
+  /// false = ครอบเฉพาะสินค้าที่ติ๊กไว้ใน `coupon_products`
+  /// คูปองแพลตฟอร์มต้องเป็น false เสมอ — การเข้าร่วมต้องเป็นการกดของร้านเท่านั้น
+  appliesToAllProducts Boolean            @default(false) @map("applies_to_all_products")
+  title                String
+  description          String?
+  discountType         CouponDiscountType @map("discount_type")
+  discountValue        Decimal            @map("discount_value") @db.Decimal(10, 2)
+  /// เพดานส่วนลดของแบบ percent — แบบ fixed ต้องเป็น null (CHECK)
+  maxDiscountAmount    Decimal?           @map("max_discount_amount") @db.Decimal(10, 2)
+  minOrderAmount       Decimal?           @map("min_order_amount") @db.Decimal(10, 2)
+  startsAt             DateTime           @map("starts_at") @db.Timestamptz(6)
+  endsAt               DateTime           @map("ends_at") @db.Timestamptz(6)
+  /// โควตารวมทั้งแคมเปญ (null = ไม่จำกัด)
+  maxRedemptions       Int?               @map("max_redemptions")
+  /// ★ จองอยู่ + ใช้ไปแล้ว ★ ตัวเดียวที่คุมโควตา — โควตาต้องถูกกินตั้งแต่ตอนจอง
+  /// ไม่งั้นวันตัดเงินจริงจะมีคนถือสิทธิ์เกินจำนวนที่ประกาศไว้
+  /// ตัดสินด้วย `UPDATE ... WHERE in_use_count < max_redemptions` ไม่ใช่ SELECT ก่อนเขียน
+  inUseCount           Int                @default(0) @map("in_use_count")
+  maxPerUser           Int                @default(1) @map("max_per_user")
+  isActive             Boolean            @default(true) @map("is_active")
+  createdBy            String?            @map("created_by") @db.Uuid
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  creator     User?              @relation("CouponCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  shop        Shop?              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  products    CouponProduct[]
+  redemptions CouponRedemption[]
+
+  @@index([isActive, endsAt])
+  @@index([shopId, isActive])
+  @@map("coupons")
+}
+
+/// ร้านติ๊กว่าสินค้าไหนของตัวเองเข้าร่วมคูปองใบไหน — ไม่มีแถว = ผู้ซื้อไม่เห็นคูปอง
+model CouponProduct {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  couponId  String   @map("coupon_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  /// เจ้าของร้านที่กดเข้าร่วม — ไม่ส่งออก API แต่ต้องตอบได้ว่าใครเป็นคนตัดสินใจ
+  enabledBy String?  @map("enabled_by") @db.Uuid
+  enabledAt DateTime @default(now()) @map("enabled_at") @db.Timestamptz(6)
+
+  coupon  Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  enabler User?   @relation("CouponProductEnabledBy", fields: [enabledBy], references: [id], onDelete: SetNull)
+
+  @@unique([couponId, productId])
+  @@index([productId])
+  @@map("coupon_products")
+}
+
+/// การจองคูปอง 1 ใบกับ **รอบหนึ่งรอบ** ของ subscription
+///
+/// เงื่อนไขถูก snapshot ไว้ตอนจอง (แบบเดียวกับ `orders.address_snapshot`)
+/// ร้าน/admin แก้หรือปิดคูปองทีหลังจึงไม่ย้อนไปแก้ของที่จองไปแล้ว
+model CouponRedemption {
+  id             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  couponId       String                 @map("coupon_id") @db.Uuid
+  subscriptionId String                 @map("subscription_id") @db.Uuid
+  /// ★ denormalize ที่ DB บังคับความถูกต้องเอง ★ (แพตเทิร์นเดียวกับ `orders.buyer_id`)
+  ///
+  /// มีไว้ให้ partial unique `coupon_once_per_user` บังคับกฎ "1 คน 1 ครั้งต่อคูปอง"
+  /// ได้ที่ระดับ DB — แต่ข้อมูลซ้ำที่ไม่มีอะไรบังคับคือหนี้: ถ้าค่านี้เพี้ยนไปจาก
+  /// เจ้าของ subscription จริงเมื่อไหร่ กฎกันใช้ซ้ำก็ถูกข้ามได้ทันที
+  /// จึงอ้าง FK **คู่** `(subscription_id, buyer_id)` → `subscriptions(id, buyer_id)`
+  /// ทำให้ค่าที่ไม่ตรงกับเจ้าของจริงเป็นไปไม่ได้ทางกายภาพ
+  buyerId        String                 @map("buyer_id") @db.Uuid
+  cycleDate      DateTime               @map("cycle_date") @db.Date
+  /// snapshot ระดับของคูปอง ณ เวลาจอง — partial unique เกาะคอลัมน์นี้เพื่อบังคับ
+  /// "1 รอบ ได้ระดับละ 1 ใบ" (ซ้อนได้สูงสุด 2 ใบ: แพลตฟอร์ม + ร้าน)
+  tier           CouponTier             @default(platform)
+  status         CouponRedemptionStatus @default(reserved)
+
+  /// snapshot เงื่อนไข ณ เวลาจอง — ใช้คำนวณใหม่ตอนตัดเงินจริง
+  discountType      CouponDiscountType @map("discount_type")
+  discountValue     Decimal            @map("discount_value") @db.Decimal(10, 2)
+  maxDiscountAmount Decimal?           @map("max_discount_amount") @db.Decimal(10, 2)
+  minOrderAmount    Decimal?           @map("min_order_amount") @db.Decimal(10, 2)
+  /// ตอนจอง = ประมาณการที่โชว์ให้ผู้ซื้อ · ตอน consume = ยอดจริงที่หักไป
+  discountAmount    Decimal            @default(0) @map("discount_amount") @db.Decimal(10, 2)
+
+  reservedAt     DateTime             @default(now()) @map("reserved_at") @db.Timestamptz(6)
+  consumedAt     DateTime?            @map("consumed_at") @db.Timestamptz(6)
+  releasedAt     DateTime?            @map("released_at") @db.Timestamptz(6)
+  releasedReason CouponReleaseReason? @map("released_reason")
+
+  coupon          Coupon       @relation(fields: [couponId], references: [id])
+  subscription    Subscription @relation(fields: [subscriptionId, buyerId], references: [id, buyerId], onDelete: Cascade)
+  /// ออเดอร์ที่ใช้ใบนี้ — FK อยู่ฝั่ง `orders` · แยก relation ตามระดับเพราะ
+  /// ออเดอร์หนึ่งใบถือได้ทั้งใบแพลตฟอร์มและใบร้านพร้อมกัน
+  orderAsPlatform Order?       @relation("OrderPlatformCoupon")
+  orderAsShop     Order?       @relation("OrderShopCoupon")
+
+  @@index([subscriptionId, status])
+  @@index([couponId, status])
+  @@map("coupon_redemptions")
+}
+
+// ------------------------------------------------------------
+// 6. SYSTEM
+// ------------------------------------------------------------
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  userId    String           @map("user_id") @db.Uuid
+  type      NotificationType
+  title     String
+  body      String?
+  /// ต้องเป็น path ในแอปเท่านั้น (CHECK กัน stored phishing link)
+  linkPath  String?          @map("link_path")
+  readAt    DateTime?        @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+/// log การรันของ recurring engine — ใช้ยืนยัน idempotency ในเล่ม
+model EngineRun {
+  id                   Int      @id @default(autoincrement())
+  runDate              DateTime @map("run_date") @db.Date
+  ordersCreated        Int      @default(0) @map("orders_created")
+  notificationsCreated Int      @default(0) @map("notifications_created")
+  detail               Json?
+  ranAt                DateTime @default(now()) @map("ran_at") @db.Timestamptz(6)
+
+  @@index([runDate])
+  @@map("engine_runs")
+}
+
+/// ตั้งค่าเมลที่ผู้ดูแลแก้จากหน้าจอได้ — **แถวเดียวเสมอ** (CHECK บังคับ `id = 1`)
+///
+/// ทำไมไม่เก็บใน `.env` ทั้งหมด: ค่าพวกนี้ต้องสลับได้ระหว่างซ้อมเดโม่โดยไม่ต้อง
+/// รีสตาร์ต API · ส่วนที่ยัง**ไม่**อยู่ที่นี่คือ `SMTP_USER` / `SMTP_PASS` ซึ่งเป็น
+/// credential จริง — กฎข้อ 7 ของโปรเจกต์บอกว่าของพวกนั้นอยู่ใน `.env` เท่านั้น
+model MailSetting {
+  id Int @id @default(1)
+
+  /// เปิดโหมด DEV/UAT: อีเมลทุกฉบับถูกส่งไปที่ `redirectTo` แทนผู้รับจริง
+  redirectEnabled Boolean @default(false) @map("redirect_enabled")
+  /// ปลายทางเดียวที่รับอีเมลทั้งหมดแทนผู้รับจริง — บังคับมีค่าเมื่อเปิดโหมด (CHECK)
+  redirectTo      String? @map("redirect_to")
+  /// รายชื่อ Cc คั่นด้วย comma — แนบไปกับทุกฉบับระหว่างเปิดโหมด
+  redirectCc      String? @map("redirect_cc")
+
+  /// ค่าที่ทับ `.env` ได้ — null = ใช้ค่าจาก `.env` ตามเดิม
+  smtpHost   String? @map("smtp_host")
+  smtpPort   Int?    @map("smtp_port")
+  smtpSecure Boolean @default(false) @map("smtp_secure")
+  mailFrom   String? @map("mail_from")
+
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// ใครแก้ล่าสุด — null ได้เพราะแถวตั้งต้นถูกสร้างโดย migration ไม่ใช่คน
+  /// `SetNull` ไม่ใช่ `Cascade`: ลบบัญชีแล้วต้องไม่ลบ**ตั้งค่าของทั้งระบบ**ตามไปด้วย
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedBy   User?    @relation("MailSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("mail_settings")
+}
+
+/// ร่องรอยของการกระทำที่มีสิทธิ์สูง — ปิดความเสี่ยง A-3 ที่ค้างมาตั้งแต่ Phase 6
+///
+/// **เขียนอย่างเดียว ไม่มี endpoint ให้แก้หรือลบ** — log ที่ผู้ถูกตรวจสอบแก้ได้
+/// ไม่ใช่ log · `actorId` เป็น `SetNull` ไม่ใช่ `Cascade` เพราะการลบบัญชีต้องไม่
+/// ทำให้ประวัติการกระทำของบัญชีนั้นหายตามไปด้วย
+model AuditLog {
+  id         Int         @id @default(autoincrement())
+  /// null = ระบบทำเอง (engine / งานเบื้องหลัง) ไม่ใช่คนกด
+  actorId    String?     @map("actor_id") @db.Uuid
+  action     AuditAction
+  targetType String?     @map("target_type")
+  targetId   String?     @map("target_id")
+  /// ข้อความไทยพร้อมแสดงบนหน้าจอ — สรุปไว้ตอนเขียนเพราะของที่ถูกอ้างถึงอาจถูกลบไปแล้ว
+  summary    String
+  detail     Json?
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+/// อีเมลขาออกทุกฉบับ — มีไว้ตอบว่า "เมลไปถึงใครจริง ๆ" โดยเฉพาะตอนเปิดโหมด DEV
+///
+/// ★ ห้ามเก็บเนื้อเมล ★ เก็บแค่ปลายทางกับผลลัพธ์ — เนื้อเมลรีเซ็ตรหัสผ่านมีลิงก์ที่
+/// ตั้งรหัสผ่านของบัญชีได้ ถ้าลงตารางนี้ = ใครอ่าน DB ได้ก็ยึดบัญชีได้ทันที
+model EmailLog {
+  id   Int    @id @default(autoincrement())
+  /// ชนิดของเมล เช่น `password_reset` — text เพราะจะมีเพิ่มเรื่อย ๆ ตาม feature
+  kind String
+
+  /// ผู้รับตัวจริงตามตรรกะของระบบ
+  toIntended String  @map("to_intended")
+  /// ผู้รับที่ถูกส่งไปจริง — ต่างจากข้างบนเมื่อโหมด DEV เปิดอยู่
+  toActual   String  @map("to_actual")
+  ccActual   String? @map("cc_actual")
+  /// true = ถูกเปลี่ยนเส้นทางเพราะโหมด DEV (CHECK บังคับให้ตรงกับสองคอลัมน์บน)
+  redirected Boolean @default(false)
+
+  status EmailLogStatus
+  /// ข้อความจาก SMTP เมื่อส่งไม่ผ่าน — ตัดความยาวไว้ที่ 500 (CHECK)
+  error  String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("email_logs")
+}

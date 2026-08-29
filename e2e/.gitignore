@@ -1,0 +1,7 @@
+node_modules/
+test-results/
+reports/html/
+.env
+
+# report.md ตั้งใจให้ commit — เป็นหลักฐานผลทดสอบที่อ้างในเล่ม
+!reports/report.md

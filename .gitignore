@@ -1,0 +1,43 @@
+# ============================================================
+#  ANAN — root .gitignore
+#  (anan/, anan-api/, e2e/ มี .gitignore ของตัวเองอีกชั้น)
+# ============================================================
+
+# ---- เครื่องมือของ Claude Code ไม่ใช่โค้ด thesis ----
+# skill pack ที่โหลดมาจาก marketplace — ติดตั้งใหม่ได้จาก skills-lock.json
+.agents/
+
+# symlink ที่ชี้ด้วย absolute path ของเครื่องนี้ (/c/Users/pavat/...)
+# ถ้า commit ไปจะพังทันทีเมื่อ clone ที่เครื่องอื่น
+.claude/skills/
+
+# ค่า config เฉพาะเครื่อง
+.claude/settings.local.json
+
+# หมายเหตุ: .claude/launch.json และ .claude/commands/ ตั้งใจให้ commit
+# เพราะเป็นของโปรเจกต์ ANAN เอง (คำสั่งรัน dev server + /sec-check)
+
+# ---- ความลับ: ห้าม commit (CLAUDE.md กฎข้อ 7) ----
+.env
+.env.*
+!.env.example
+
+# ---- dependencies / build (กันพลาดซ้ำอีกชั้น) ----
+node_modules/
+dist/
+build/
+coverage/
+
+# ---- log / temp ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tsbuildinfo
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+*.swp

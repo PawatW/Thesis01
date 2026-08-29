@@ -1,0 +1,49 @@
+import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { Public } from '../common/decorators/public.decorator';
+import { CatalogService } from './catalog.service';
+import {
+  ListProductsQuery,
+  type CategoryResponse,
+  type PlanLookupResponse,
+  type ProductCardResponse,
+  type ProductDetailResponse,
+  type ShopPageResponse,
+} from './dto/catalog.dto';
+
+/**
+ * ทั้ง controller นี้เป็น `@Public()` — เปิดให้คนที่ยังไม่ล็อกอินเดินดูสินค้าได้
+ * เหมือน Shopee · ไม่มี endpoint ไหนในนี้คืนข้อมูลส่วนตัวของใคร
+ * ตัวเลขสมาชิก/คะแนนรีวิวเป็น aggregate และชื่อผู้รีวิวถูก mask
+ */
+@Public()
+@Controller('catalog')
+export class CatalogController {
+  constructor(private readonly catalog: CatalogService) {}
+
+  @Get('categories')
+  categories(): Promise<CategoryResponse[]> {
+    return this.catalog.listCategories();
+  }
+
+  @Get('products')
+  products(@Query() query: ListProductsQuery): Promise<ProductCardResponse[]> {
+    return this.catalog.listProducts(query);
+  }
+
+  @Get('products/:id')
+  product(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ProductDetailResponse> {
+    return this.catalog.getProduct(id);
+  }
+
+  @Get('shops/:id')
+  shop(@Param('id', ParseUUIDPipe) id: string): Promise<ShopPageResponse> {
+    return this.catalog.getShop(id);
+  }
+
+  @Get('plans/:id')
+  plan(@Param('id', ParseUUIDPipe) id: string): Promise<PlanLookupResponse> {
+    return this.catalog.getPlan(id);
+  }
+}

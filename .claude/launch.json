@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "anan-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "anan-api", "run", "start:dev"],
+      "port": 3000,
+      "url": "http://localhost:3000"
+    },
+    {
+      "name": "anan-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "anan", "run", "web"],
+      "port": 8081,
+      "url": "http://localhost:8081"
+    }
+  ]
+}
