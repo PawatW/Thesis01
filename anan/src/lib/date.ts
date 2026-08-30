@@ -112,6 +112,22 @@ export function formatThaiDay(iso: string | null): string {
 }
 
 /**
+ * "เดือน ปี" ไม่มีวัน — ใช้กับ "เข้าร่วมเมื่อ" ของร้าน (feature 02/10)
+ *
+ * วันที่เปิดร้านแบบเจาะจงวันไม่ได้ช่วยผู้ซื้อตัดสินใจ (และเป็นรายละเอียดของ
+ * เจ้าของร้านที่ไม่จำเป็นต้องประกาศ) — สิ่งที่สื่อความน่าเชื่อถือคือ "อยู่มานานแค่ไหน"
+ * · รับ ISO เต็มจาก API จึงระบุ `timeZone` เหมือน `formatThaiDay`
+ */
+export function formatThaiMonthYear(iso: string | null): string {
+  if (iso == null) return '—';
+  return new Date(iso).toLocaleDateString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/**
  * แสดง **เวลาจริง** (timestamptz) ตามเขตเวลาไทย — ใช้กับ log ที่ต้องรู้ว่าเกิดกี่โมง
  *
  * ต่างจาก `formatThaiDate` ที่รับวันที่ปฏิทิน (`YYYY-MM-DD`) — ตัวนั้นแปลง ISO date

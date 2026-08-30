@@ -51,13 +51,36 @@ export type ProductDetail = ProductCardData & {
 
 export type Category = { id: number; name: string; icon: string | null };
 
+/** ส่งเป็น query param `sort` — ค่าตรงกับ `PRODUCT_SORT` ที่ API รองรับ (catalog.dto.ts) */
+export type ProductSort = 'popular' | 'newest' | 'price_asc' | 'price_desc';
+
 export type ShopPage = {
   id: string;
   name: string;
   description: string | null;
   logoUrl: string | null;
   createdAt: string;
+  /** นับเฉพาะสินค้าที่ผู้ซื้อเห็นได้ */
+  productCount: number;
+  /** aggregate ล้วน — แทน "ผู้ติดตาม" ของ Shopee */
+  activeSubscribers: number;
+  rating: number | null;
+  reviewCount: number;
   products: ProductCardData[];
+};
+
+/** การ์ดร้านในหน้าแรก / หน้าค้นหา — ทรงเดียวกับฟิลด์สถิติของ `ShopPage` */
+export type ShopCardData = {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+  description: string | null;
+  productCount: number;
+  activeSubscribers: number;
+  rating: number | null;
+  reviewCount: number;
+  /** ISO string — "เข้าร่วมเมื่อ" */
+  createdAt: string;
 };
 
 /**
@@ -86,6 +109,7 @@ export async function listProducts(opts: {
   categoryId?: number;
   search?: string;
   limit?: number;
+  sort?: ProductSort;
 }): Promise<ProductCardData[]> {
   const params = new URLSearchParams();
   if (opts.categoryId != null) params.set('category', String(opts.categoryId));
@@ -93,6 +117,7 @@ export async function listProducts(opts: {
     params.set('q', opts.search.trim());
   }
   if (opts.limit != null) params.set('limit', String(opts.limit));
+  if (opts.sort != null) params.set('sort', opts.sort);
 
   const query = params.toString();
   try {
@@ -100,6 +125,22 @@ export async function listProducts(opts: {
       `/catalog/products${query ? `?${query}` : ''}`,
     );
     return rows.map(keepKnownCycles);
+  } catch {
+    return [];
+  }
+}
+
+/** คืน [] เมื่อคำขอล้ม — ทรงเดียวกับ `listProducts()` */
+export async function listShops(opts: { search?: string; limit?: number }): Promise<ShopCardData[]> {
+  const params = new URLSearchParams();
+  if (opts.search != null && opts.search.trim().length > 0) {
+    params.set('q', opts.search.trim());
+  }
+  if (opts.limit != null) params.set('limit', String(opts.limit));
+
+  const query = params.toString();
+  try {
+    return await apiFetch<ShopCardData[]>(`/catalog/shops${query ? `?${query}` : ''}`);
   } catch {
     return [];
   }

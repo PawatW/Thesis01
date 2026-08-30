@@ -68,6 +68,12 @@ export const PRODUCTS = {
     categoryId: 8,
     plans: { '2m': { id: plan(18), pricePerCycle: 320 } },
   },
+  /** P(5) — ร้าน Herbal Care · ใช้ยืนยันว่าค้นด้วยชื่อร้านเจอสินค้าของร้านนั้น (feature 02, 2026-08-30) */
+  herbalShampoo: {
+    id: product(5),
+    name: 'แชมพูมะกรูด',
+    shopName: 'Herbal Care',
+  },
 } as const;
 
 const shop = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -92,6 +98,15 @@ export const SHOPS = {
     id: shop(4),
     name: 'ร้านตัวอย่างของผู้ดูแล',
     ownerEmail: USERS.admin.email,
+  },
+  /**
+   * ร้าน Herbal Care (feature 02, 2026-08-30) — เจ้าของคือ seller2.demo@anan.local
+   * (ไม่มีใน `USERS` เพราะยังไม่มีเทสไหนต้องล็อกอินเป็น role นี้ผ่าน `loginAs()`)
+   */
+  herbalCare: {
+    id: shop(2),
+    name: 'Herbal Care',
+    ownerEmail: 'seller2.demo@anan.local',
   },
 } as const;
 

@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { SearchBar } from '@/components/SearchBar';
 import { Card, DemoBadge, EmptyState, ErrorNote, Pill, Screen, SectionHeader } from '@/components/ui';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { ProductCard } from '@/features/catalog/ProductCard';
@@ -34,6 +35,7 @@ export default function BuyerHome() {
   const [featured, setFeatured] = useState<ProductCardData[]>([]);
   const [subsError, setSubsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [homeSearch, setHomeSearch] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +116,17 @@ export default function BuyerHome() {
               </View>
               <DemoBadge />
             </View>
+
+            <SearchBar
+              id="home-search"
+              submitId="home-search-submit"
+              value={homeSearch}
+              onChangeText={setHomeSearch}
+              onSubmit={() => {
+                const q = homeSearch.trim();
+                router.push(q.length > 0 ? { pathname: '/search', params: { q } } : { pathname: '/search' });
+              }}
+            />
 
             {upNext != null ? <UpNext item={upNext} /> : null}
 

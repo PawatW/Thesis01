@@ -80,6 +80,9 @@ export const home = {
    */
   productCard: (productId: string) => `#home-product-${productId}`,
   anyProductCard: '[id^="home-product-"]',
+  /** ช่องค้นหาใน hero ของหน้าแรก (feature 02, 2026-08-30) — `SearchBar` จาก `@/components/SearchBar` */
+  search: '#home-search',
+  searchSubmit: '#home-search-submit',
 } as const;
 
 /** `anan/app/category/[id].tsx` */
@@ -90,6 +93,28 @@ export const category = {
   grid: '#category-grid',
   empty: '#category-empty',
   productCard: (productId: string) => `#category-product-${productId}`,
+} as const;
+
+/**
+ * `anan/app/search.tsx` — หน้าค้นหารวม (feature 02, 2026-08-30)
+ *
+ * ช่องเดียวค้นได้ทั้งชื่อสินค้าและชื่อร้าน — `#search-empty` ใช้ร่วมกัน 2 สถานะ
+ * (ยังไม่พิมพ์คำค้น vs. ค้นแล้วไม่พบ) ข้อความต่างกันแต่ id เดียวกัน ต้อง assert
+ * ข้อความด้วยเสมอ ไม่ใช่แค่ว่า element โผล่ (ดู `catalog.spec.ts` TC-122)
+ */
+export const search = {
+  input: '#search-input',
+  submit: '#search-submit',
+  /** container ของแถบร้าน — มีเฉพาะเมื่อผลค้นหามีร้านอย่างน้อย 1 ร้าน */
+  shops: '#search-shops',
+  shop: (shopId: string) => `#search-shop-${shopId}`,
+  grid: '#search-grid',
+  product: (productId: string) => `#search-product-${productId}`,
+  empty: '#search-empty',
+  sortPopular: '#search-sort-popular',
+  sortNewest: '#search-sort-newest',
+  sortPriceAsc: '#search-sort-price-asc',
+  sortPriceDesc: '#search-sort-price-desc',
 } as const;
 
 /** `anan/app/product/[id].tsx` */
@@ -535,6 +560,14 @@ export const shopPage = {
   grid: '#shop-grid',
   notFound: '#shop-not-found',
   product: (productId: string) => `#shop-product-${productId}`,
+  /** ★ ห้ามใช้ `#shop-name` — ชนกับหน้า shop-settings ฝั่งร้าน ★ (feature 02, 2026-08-30) */
+  name: '#shop-page-name',
+  /** แถบสถิติ 4 ช่อง — ตัวเลขมาจาก aggregate เดียวกับ `search.shop()` บนหน้าค้นหา */
+  statProducts: '#shop-stat-products',
+  statSubscribers: '#shop-stat-subscribers',
+  statRating: '#shop-stat-rating',
+  /** วันที่แสดงเป็น พ.ศ. (locale th-TH) — อย่า assert ข้อความวันที่ แค่เช็คว่ามี element */
+  statJoined: '#shop-stat-joined',
 } as const;
 
 /** `anan/app/(buyer)/profile/payment-methods.tsx` (feature 09) */

@@ -224,6 +224,16 @@
   - [x] UI: หน้า `(seller)/coupons` ใหม่ · sheet ผู้ซื้อแยก 2 ช่องตามระดับ · `ProductCouponPicker` มีแถบนโยบาย + 2 กลุ่ม · checkout เลือกได้ระดับละใบ · ใบเสร็จแจกแจงทีละใบ
   - [x] Test: **59 เคสใหม่** — unit 4 · e2e API 45 (suite ใหม่ `coupon-stacking`) · **Playwright TC-116 … TC-120** · ชุดรวมเป็น unit 83 + e2e API 391 (18 suites) + L4 120 (15 specs) เขียวทั้งหมด
   - [x] เดินจริงบนเว็บ: ร้านออก BEAN10 → ผู้ซื้อจองซ้อนกับ NEWROUND20 → การ์ดขึ้น "รวมลด ฿76.50" → engine ตัดเงิน ฿178.50 พร้อม redemption 2 ใบสถานะ `consumed` → ใบเสร็จแจกแจงถูกทั้งสองบรรทัด · ไล่ [security-rules.md](security-rules.md) แล้วไม่พบประเด็นใหม่
+- [x] **Phase 8.2 — ค้นหาร้านค้า + หน้าร้านสาธารณะ (สถิติ)** _(ผู้ใช้สั่งให้เพิ่ม 2026-08-30 · **เสร็จ 2026-08-30**)_
+  - สเปก: [feature 02](../context/planing/02-catalog.md) (หน้าค้นหา) · [feature 10](../context/planing/10-seller-shop.md) (สถิติหน้าร้านสาธารณะ) — ของเดิมอยู่ใน Out of scope ของทั้งสองไฟล์
+  - **ทำไม** — Catalog (feature 02) มีแค่ค้นหา "สินค้า" อย่างเดียวมาตั้งแต่ Phase 2 ทั้งที่เป็น marketplace หลายร้าน การหาร้านที่เจาะจง (เช่นเคยซื้อจากร้านนี้แล้วอยากดูของอื่น) ต้องไล่ผ่านสินค้าทีละชิ้นเท่านั้น — เพิ่มช่องทางค้นร้านตรง ๆ + ทำให้หน้าร้านสาธารณะ (มีอยู่แล้วตั้งแต่ Phase 7) น่าเชื่อถือขึ้นด้วยตัวเลขสถิติ
+  - **ช่องค้นหาอยู่แค่หน้าแรก (hero) + หน้า `/search` เอง** ไม่แตะ topbar ของคอนโซล · ค้นชื่อร้านแล้วกริดสินค้าโชว์ของร้านนั้นด้วย (`GET /catalog/products?q=` ขยายเป็น match ชื่อสินค้า OR ชื่อร้าน — ร้านที่ถูกระงับยังถูก AND กรองไว้เหมือนเดิม)
+  - **"ผู้ติดตาม"/อัตราตอบแชท/ป้าย Mall แบบ Shopee → ไม่ทำ ใช้ `activeSubscribers` แทน** (aggregate ล้วน ไม่หลุดข้อมูลรายคน) เพราะระบบนี้ไม่มี follow/chat/merchant-tier เลย — เหตุผลเต็มอยู่ที่ [02-catalog.md](../context/planing/02-catalog.md)
+  - [x] DB/API: `GET /catalog/shops?q=&limit=` (endpoint ใหม่) คืน `ShopCardResponse[]` แบบ aggregate · `GET /catalog/shops/:id` เพิ่ม 4 ฟิลด์ (`productCount`/`activeSubscribers`/`rating`/`reviewCount`) · `GET /catalog/products?q=` match ชื่อร้านด้วย
+  - [x] UI: หน้า `app/search.tsx` ใหม่ (แถบ "ร้านค้าที่เกี่ยวข้อง" + sort chips ส่งค่าไป API + กริดสินค้า) · component ใหม่ `SearchBar`/`ShopCard` · หน้าร้านสาธารณะ (`shop/[id].tsx`, มีอยู่แล้วจาก Phase 7) เพิ่มแถบสถิติ 4 ตัว
+  - [x] Test: L2 `catalog.e2e-spec.ts` 22 เคส (รวม regression guard: ระงับร้าน/ปิดร้านเอง + ค้นด้วยชื่อร้าน → สินค้าต้องไม่หลุดทาง `where.OR`) · Playwright TC-121 (P0) / TC-122 (P2) / TC-123 (P1) — **วัดจริง 2026-08-30: unit 83 · L2+L3 402 · L4 123 เขียวทั้งหมด** ดู [testing.md §5](testing.md)
+  - [x] ไม่ทำรอบนี้ (ตามสเปก) — filter sidebar (ช่วงราคา/ส่งจาก), คูปองร้านบนหน้าร้าน, ปุ่มติดตาม/พูดคุย, index `pg_trgm` สำหรับ ILIKE (ข้อมูลระดับ demo ยังไม่จำเป็น)
+  - [x] ไล่ [security-rules.md](security-rules.md) ก่อนปิดงาน (endpoint ใหม่ที่เป็น public)
 
 ## สถานะการ deploy (ณ 2026-08-19)
 

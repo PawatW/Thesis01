@@ -40,6 +40,27 @@ export class ListProductsQuery {
   limit?: number;
 }
 
+/** ค้นหาร้านค้า — ทรงเดียวกับ `ListProductsQuery.q` (feature 02 · Shop Search) */
+export class ListShopsQuery {
+  @IsOptional()
+  @Transform(({ value }): unknown =>
+    typeof value === 'string' ? value.trim().slice(0, 60) : value,
+  )
+  @IsString()
+  q?: string;
+
+  // เพดานแคบกว่า products: ใช้โชว์เป็นแถบการ์ดร้าน (หน้าแรก/หน้าค้นหา)
+  // ไม่ใช่หน้าลิสต์เต็มจอ — default 6 กำหนดที่ service เหมือน DEFAULT_LIMIT ของสินค้า
+  @IsOptional()
+  @Transform(({ value }): unknown =>
+    typeof value === 'string' ? Number(value) : value,
+  )
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  limit?: number;
+}
+
 export interface PlanResponse {
   id: string;
   cycle: string;
@@ -89,7 +110,32 @@ export interface ShopPageResponse {
   description: string | null;
   logoUrl: string | null;
   createdAt: string;
+  /** นับเฉพาะสินค้าที่ผู้ซื้อเห็นได้ */
+  productCount: number;
+  /** aggregate ล้วน — แทน "ผู้ติดตาม" ของ Shopee */
+  activeSubscribers: number;
+  rating: number | null;
+  reviewCount: number;
   products: ProductCardResponse[];
+}
+
+/**
+ * การ์ดร้านค้า — ใช้ที่หน้าแรก (hero search) และหน้า `/search`
+ * ★ ห้ามมี `ownerId` / `suspendedAt` / `suspendedReason` / อีเมลเจ้าของ ★
+ */
+export interface ShopCardResponse {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+  description: string | null;
+  /** นับเฉพาะสินค้าที่ผู้ซื้อเห็นได้ */
+  productCount: number;
+  /** aggregate ล้วน — แทน "ผู้ติดตาม" ของ Shopee */
+  activeSubscribers: number;
+  rating: number | null;
+  reviewCount: number;
+  /** ISO string — "เข้าร่วมเมื่อ" */
+  createdAt: string;
 }
 
 export interface PlanLookupResponse {

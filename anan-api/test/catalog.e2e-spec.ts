@@ -7,6 +7,8 @@ const SEED = {
   coffee: '20000000-0000-4000-8000-000000000001', // กาแฟคั่วกลาง Arabica (Bean Story)
   dripBag: '20000000-0000-4000-8000-000000000003',
   beanStory: '10000000-0000-4000-8000-000000000001',
+  // ★ ร้านของบัญชี admin — ตั้งใจไม่มีสินค้าเลย (ดูเหตุผลใน prisma/seed.ts) ★
+  adminShop: '10000000-0000-4000-8000-000000000004',
   closedPlan: '30000000-0000-4000-8000-000000000005', // ปิดรับสมาชิกใหม่ใน seed
   openPlan: '30000000-0000-4000-8000-000000000002',
 };
@@ -21,6 +23,18 @@ interface Card {
   reviewCount: number;
 }
 
+interface ShopCard {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+  description: string | null;
+  productCount: number;
+  activeSubscribers: number;
+  rating: number | null;
+  reviewCount: number;
+  createdAt: string;
+}
+
 describe('Catalog — เปิดให้คนที่ยังไม่ล็อกอินเดินดูได้', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -31,10 +45,10 @@ describe('Catalog — เปิดให้คนที่ยังไม่ล�
 
   afterAll(async () => {
     if (prisma) {
-      // คืน seed ให้เหมือนเดิมเสมอ — test ห้ามทิ้งร้านที่ถูกระงับค้างไว้
+      // คืน seed ให้เหมือนเดิมเสมอ — test ห้ามทิ้งร้านที่ถูกระงับ/ปิดค้างไว้
       await prisma.shop.update({
         where: { id: SEED.beanStory },
-        data: { suspendedAt: null, suspendedReason: null },
+        data: { isActive: true, suspendedAt: null, suspendedReason: null },
       });
       await prisma.product.update({
         where: { id: SEED.dripBag },
@@ -196,6 +210,173 @@ describe('Catalog — เปิดให้คนที่ยังไม่ล�
       await api(app)
         .get('/api/v1/catalog/shops/00000000-0000-4000-8000-0000000000ff')
         .expect(404);
+    });
+  });
+
+  describe('GET /catalog/shops (ค้นหาร้านค้า — feature 02 Shop Search)', () => {
+    it('ค้นด้วย q ตัวพิมพ์เล็ก → เจอ "Bean Story" (case-insensitive)', async () => {
+      const res = await api(app)
+        .get('/api/v1/catalog/shops?q=bean')
+        .expect(200);
+      const shops = res.body as ShopCard[];
+      expect(
+        shops.some((s) => s.id === SEED.beanStory && s.name === 'Bean Story'),
+      ).toBe(true);
+    });
+
+    it('ร้านที่ถูก admin ระงับ → หายจากผลค้นหา', async () => {
+      await prisma.shop.update({
+        where: { id: SEED.beanStory },
+        data: { suspendedAt: new Date(), suspendedReason: 'ทดสอบ' },
+      });
+      try {
+        const res = await api(app)
+          .get('/api/v1/catalog/shops?q=Bean')
+          .expect(200);
+        expect(
+          (res.body as ShopCard[]).some((s) => s.id === SEED.beanStory),
+        ).toBe(false);
+      } finally {
+        await prisma.shop.update({
+          where: { id: SEED.beanStory },
+          data: { suspendedAt: null, suspendedReason: null },
+        });
+      }
+    });
+
+    it('ร้านที่เจ้าของปิดเอง (isActive=false) → หายจากผลค้นหา', async () => {
+      await prisma.shop.update({
+        where: { id: SEED.beanStory },
+        data: { isActive: false },
+      });
+      try {
+        const res = await api(app)
+          .get('/api/v1/catalog/shops?q=Bean')
+          .expect(200);
+        expect(
+          (res.body as ShopCard[]).some((s) => s.id === SEED.beanStory),
+        ).toBe(false);
+      } finally {
+        await prisma.shop.update({
+          where: { id: SEED.beanStory },
+          data: { isActive: true },
+        });
+      }
+    });
+
+    it('ร้านที่ไม่มีสินค้าที่มองเห็นได้เลย (ร้านตัวอย่างของผู้ดูแล) → ไม่โผล่ในผลค้นหา', async () => {
+      const res = await api(app)
+        .get('/api/v1/catalog/shops?q=ผู้ดูแล')
+        .expect(200);
+      expect(
+        (res.body as ShopCard[]).some((s) => s.id === SEED.adminShop),
+      ).toBe(false);
+    });
+
+    it('response ไม่มี ownerId / suspendedAt / suspendedReason หลุด', async () => {
+      const res = await api(app).get('/api/v1/catalog/shops').expect(200);
+      const raw = JSON.stringify(res.body);
+      expect(raw).not.toContain('ownerId');
+      expect(raw).not.toContain('suspendedAt');
+      expect(raw).not.toContain('suspendedReason');
+    });
+
+    it('limit เกินเพดาน (>20) → 400', async () => {
+      await api(app).get('/api/v1/catalog/shops?limit=999').expect(400);
+    });
+
+    it('q ยาวเกิน 60 ตัวอักษร → ถูกตัดทิ้งส่วนเกินแทนที่จะ error (ทรงเดียวกับ /catalog/products)', async () => {
+      const longQ = 'x'.repeat(120);
+      await api(app).get(`/api/v1/catalog/shops?q=${longQ}`).expect(200);
+    });
+
+    it('GET /catalog/products?q=<ชื่อร้าน> → ได้สินค้าของร้านนั้นด้วย', async () => {
+      const res = await api(app)
+        .get(`/api/v1/catalog/products?q=${encodeURIComponent('Bean Story')}`)
+        .expect(200);
+      const rows = res.body as Card[];
+      expect(rows.some((p) => p.id === SEED.coffee)).toBe(true);
+      expect(rows.every((p) => p.shopName === 'Bean Story')).toBe(true);
+    });
+
+    // ★ regression guard ของ where.OR ★ ห้ามลบทิ้งแม้จะดูซ้ำกับเคส
+    // "ร้านถูกระงับ → GET /catalog/products (ไม่มี q)" ข้างบน — เคสนั้นพิสูจน์แค่ว่า
+    // suspendedAt กรองสินค้าออกตอนไม่มี q เท่านั้น ส่วนเคสนี้พิสูจน์คนละจุดเสี่ยง:
+    // ตอนมี q, listProducts() ประกาศ `where.OR = [...]` ทับเข้าไปใน where เดิม
+    // ถ้าใครมาแก้ภายหลังเป็นแพทเทิร์นที่คนเขียน Prisma พลาดกันบ่อย เช่น
+    // `where.OR = [{ ...where }, { shop: { name: ... } }]` (คิดว่ากำลัง "รวม" เงื่อนไข
+    // เดิมเข้าไปด้วย แต่จริง ๆ กลายเป็นสร้าง object ใหม่ที่ AND กับ where.OR ของตัวเอง
+    // ไม่ใช่ AND กับ isActive/suspendedAt/shop ระดับบนสุดอีกต่อไป) สินค้าของร้านที่
+    // ถูกแบนจะหลุดออกมาได้ทันทีเฉพาะตอนค้นด้วยชื่อร้าน โดยที่เคส suspend เฉย ๆ
+    // (ไม่มี q) ข้างบนจะยังเขียวอยู่เหมือนเดิม — ต้องมีเคสนี้แยกไว้ต่างหาก
+    it('★ regression guard: ร้านถูกระงับ + ค้นด้วยชื่อร้าน → ต้องไม่หลุดออกมาทาง where.OR', async () => {
+      await prisma.shop.update({
+        where: { id: SEED.beanStory },
+        data: { suspendedAt: new Date(), suspendedReason: 'ทดสอบ' },
+      });
+      try {
+        const res = await api(app)
+          .get(`/api/v1/catalog/products?q=${encodeURIComponent('Bean Story')}`)
+          .expect(200);
+        const rows = res.body as Card[];
+        expect(rows.some((p) => p.id === SEED.coffee)).toBe(false);
+        expect(rows.some((p) => p.shopName === 'Bean Story')).toBe(false);
+      } finally {
+        await prisma.shop.update({
+          where: { id: SEED.beanStory },
+          data: { suspendedAt: null, suspendedReason: null },
+        });
+      }
+    });
+
+    // เคสคู่กัน — ร้านปิดเอง (isActive=false) ต้องกันได้เหมือนกับ suspendedAt ข้างบน
+    // เพราะทั้งสองฟิลด์ถูก spread มาจาก VISIBLE_SHOP/VISIBLE_PRODUCT ระดับเดียวกัน
+    it('★ regression guard: ร้านปิดเอง (isActive=false) + ค้นด้วยชื่อร้าน → ต้องไม่หลุดออกมาทาง where.OR', async () => {
+      await prisma.shop.update({
+        where: { id: SEED.beanStory },
+        data: { isActive: false },
+      });
+      try {
+        const res = await api(app)
+          .get(`/api/v1/catalog/products?q=${encodeURIComponent('Bean Story')}`)
+          .expect(200);
+        const rows = res.body as Card[];
+        expect(rows.some((p) => p.id === SEED.coffee)).toBe(false);
+        expect(rows.some((p) => p.shopName === 'Bean Story')).toBe(false);
+      } finally {
+        await prisma.shop.update({
+          where: { id: SEED.beanStory },
+          data: { isActive: true },
+        });
+      }
+    });
+
+    it('productCount และ activeSubscribers ของ Bean Story ตรงกับข้อมูลจริงใน DB', async () => {
+      const [dbProductCount, dbActiveSubs] = await Promise.all([
+        prisma.product.count({
+          where: {
+            shopId: SEED.beanStory,
+            isActive: true,
+            suspendedAt: null,
+          },
+        }),
+        prisma.subscription.count({
+          where: {
+            status: 'active',
+            plan: { product: { shopId: SEED.beanStory } },
+          },
+        }),
+      ]);
+
+      const res = await api(app)
+        .get(`/api/v1/catalog/shops/${SEED.beanStory}`)
+        .expect(200);
+      const body = res.body as {
+        productCount: number;
+        activeSubscribers: number;
+      };
+      expect(body.productCount).toBe(dbProductCount);
+      expect(body.activeSubscribers).toBe(dbActiveSubs);
     });
   });
 });

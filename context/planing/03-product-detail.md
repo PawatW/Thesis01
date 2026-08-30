@@ -14,7 +14,7 @@
 | Route | หน้าจอ |
 |---|---|
 | `(buyer)/product/[id].tsx` | หน้าสินค้า |
-| `(buyer)/shop/[id].tsx` | หน้าร้าน (สาธารณะ) — โลโก้ + สินค้าของร้าน (reuse `ProductCard`) |
+| `shop/[id].tsx` | หน้าร้าน (สาธารณะ) — โลโก้ + สินค้าของร้าน (reuse `ProductCard`) |
 
 ## Components หลัก
 

@@ -6,14 +6,17 @@ import {
   maskReviewerName,
   type CategoryResponse,
   type ListProductsQuery,
+  type ListShopsQuery,
   type PlanLookupResponse,
   type PlanResponse,
   type ProductCardResponse,
   type ProductDetailResponse,
+  type ShopCardResponse,
   type ShopPageResponse,
 } from './dto/catalog.dto';
 
 const DEFAULT_LIMIT = 40;
+const DEFAULT_SHOP_LIMIT = 6;
 const REVIEWS_PER_PRODUCT = 10;
 
 /**
@@ -24,11 +27,27 @@ const REVIEWS_PER_PRODUCT = 10;
  * ก็เก็บเงินให้ร้านที่ตัวเองสั่งระงับ
  *
  * แยก 2 เรื่องออกจากกัน: `isActive` = เจ้าของปิดเอง · `suspendedAt` = admin ระงับ
+ *
+ * แตกเป็น 2 ก้อนย่อยด้านล่าง (`PRODUCT_SELF_VISIBLE` + `VISIBLE_SHOP`) เพราะฟีเจอร์
+ * ค้นหาร้านค้าต้องเขียนเงื่อนไข "ร้านที่มองเห็นได้" แบบ**มุมกลับ** (where บน `Shop`
+ * ไม่ใช่บน `Product`) — ประกอบกลับเป็น `VISIBLE_PRODUCT` ด้านล่างให้ได้ค่าเท่าเดิมเป๊ะ
+ * เพื่อไม่ให้ engine/checkout ที่ import ตัวนี้อยู่ต้องแก้อะไร
  */
-export const VISIBLE_PRODUCT = {
+const PRODUCT_SELF_VISIBLE = {
   isActive: true,
   suspendedAt: null,
-  shop: { isActive: true, suspendedAt: null },
+} satisfies Prisma.ProductWhereInput;
+
+/** ร้านที่ผู้ซื้อเห็นได้ — export ไว้ให้ query ฝั่ง `Shop` ใช้ตัวเดียวกัน ไม่เขียนซ้ำ */
+export const VISIBLE_SHOP = {
+  isActive: true,
+  suspendedAt: null,
+} satisfies Prisma.ShopWhereInput;
+
+/** ★ ค่าเท่าเดิมเป๊ะ ห้ามเปลี่ยนความหมาย — engine/checkout ใช้ตัวนี้อยู่ ★ */
+export const VISIBLE_PRODUCT = {
+  ...PRODUCT_SELF_VISIBLE,
+  shop: VISIBLE_SHOP,
 } satisfies Prisma.ProductWhereInput;
 
 /**
@@ -73,6 +92,28 @@ const PRODUCT_SELECT = {
 
 type ProductRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_SELECT }>;
 
+const SHOP_SELECT = {
+  id: true,
+  name: true,
+  logoUrl: true,
+  description: true,
+  createdAt: true,
+} satisfies Prisma.ShopSelect;
+
+interface ShopStatsRow {
+  productCount: number;
+  activeSubscribers: number;
+  rating: number | null;
+  reviewCount: number;
+}
+
+const EMPTY_SHOP_STATS: ShopStatsRow = {
+  productCount: 0,
+  activeSubscribers: 0,
+  rating: null,
+  reviewCount: 0,
+};
+
 @Injectable()
 export class CatalogService {
   constructor(private readonly prisma: PrismaService) {}
@@ -89,8 +130,14 @@ export class CatalogService {
     const where: Prisma.ProductWhereInput = { ...VISIBLE_PRODUCT };
     if (query.category != null) where.categoryId = query.category;
     if (query.q) {
-      // Prisma parameterizes ค่านี้ — `%` ที่ผู้ใช้พิมพ์มาแค่ขยายผลค้นหาของตัวเอง
-      where.name = { contains: query.q, mode: 'insensitive' };
+      // ★ ประกาศเป็น where.OR ตรง ๆ ได้อย่างปลอดภัย — Prisma AND ทุก top-level field
+      // เข้ากับ OR เสมอ ดังนั้น isActive/suspendedAt/shop ที่ spread มาจาก
+      // VISIBLE_PRODUCT ข้างบนยังกรองอยู่ครบ ร้านที่ถูกระงับจึงไม่มีทางหลุดออกมา
+      // ทาง `shop.name` แม้ชื่อร้านจะแมตช์คำค้นก็ตาม (ห้ามเขียน where.OR ทับ where เดิม)
+      where.OR = [
+        { name: { contains: query.q, mode: 'insensitive' } },
+        { shop: { name: { contains: query.q, mode: 'insensitive' } } },
+      ];
     }
 
     const rows = await this.prisma.product.findMany({
@@ -104,6 +151,48 @@ export class CatalogService {
   }
 
   /**
+   * ค้นหาร้านค้า (feature 02 · Shop Search) — ใช้ที่หน้าแรก (hero) และหน้า `/search`
+   *
+   * ร้านที่ไม่มีสินค้าที่มองเห็นได้เลยไม่ต้องโผล่ (`products: { some: ... }`) —
+   * ไม่งั้นกดเข้าไปแล้วเจอหน้าร้านว่างเปล่า ทั้งที่ตั้งใจให้เป็นแค่ผลค้นหา
+   */
+  async listShops(query: ListShopsQuery): Promise<ShopCardResponse[]> {
+    const where: Prisma.ShopWhereInput = {
+      ...VISIBLE_SHOP,
+      products: { some: PRODUCT_SELF_VISIBLE },
+    };
+    if (query.q) {
+      where.name = { contains: query.q, mode: 'insensitive' };
+    }
+
+    const shops = await this.prisma.shop.findMany({
+      where,
+      select: SHOP_SELECT,
+      // เรียงตามจำนวนสินค้าก่อน แล้ว fallback เป็นชื่อ — deterministic ไม่ให้เทสแกว่ง
+      orderBy: [{ products: { _count: 'desc' } }, { name: 'asc' }],
+      take: query.limit ?? DEFAULT_SHOP_LIMIT,
+    });
+    if (shops.length === 0) return [];
+
+    const stats = await this.shopStats(shops.map((s) => s.id));
+
+    return shops.map((s) => {
+      const stat = stats.get(s.id) ?? EMPTY_SHOP_STATS;
+      return {
+        id: s.id,
+        name: s.name,
+        logoUrl: s.logoUrl,
+        description: s.description,
+        productCount: stat.productCount,
+        activeSubscribers: stat.activeSubscribers,
+        rating: stat.rating,
+        reviewCount: stat.reviewCount,
+        createdAt: s.createdAt.toISOString(),
+      };
+    });
+  }
+
+  /**
    * หน้าร้านสาธารณะ (feature 10)
    *
    * ★ ร้านที่ถูกระงับตอบ 404 เหมือนไม่มีอยู่ ★ เหมือนกับสินค้า — ไม่บอกว่า
@@ -112,7 +201,7 @@ export class CatalogService {
    */
   async getShop(id: string): Promise<ShopPageResponse> {
     const shop = await this.prisma.shop.findFirst({
-      where: { id, isActive: true, suspendedAt: null },
+      where: { id, ...VISIBLE_SHOP },
       select: {
         id: true,
         name: true,
@@ -130,12 +219,19 @@ export class CatalogService {
       take: DEFAULT_LIMIT,
     });
 
+    const stats = await this.shopStats([id]);
+    const stat = stats.get(id) ?? EMPTY_SHOP_STATS;
+
     return {
       id: shop.id,
       name: shop.name,
       description: shop.description,
       logoUrl: shop.logoUrl,
       createdAt: shop.createdAt.toISOString(),
+      productCount: stat.productCount,
+      activeSubscribers: stat.activeSubscribers,
+      rating: stat.rating,
+      reviewCount: stat.reviewCount,
       products: await this.decorate(rows),
     };
   }
@@ -298,6 +394,84 @@ export class CatalogService {
     }));
 
     return cards;
+  }
+
+  /**
+   * เติมสถิติของร้าน (จำนวนสินค้า / สมาชิก / รีวิว) — ใช้ทั้ง `listShops()` และ
+   * `getShop()` เพื่อไม่ให้มี 2 ที่คำนวณตัวเลขชุดเดียวกันต่างกัน
+   *
+   * pattern เดียวกับ `decorate()`: groupBy 2 ครั้ง (subscription + review) ไม่ว่าจะ
+   * ขอกี่ร้านก็ตาม ไม่มีการยิง query แยกทีละร้าน (กัน N+1)
+   *
+   * ★ plans ที่ query ตรงนี้ไม่ filter ด้วย `isActive` (ต่างจาก `PRODUCT_SELECT`) ★
+   * เพราะแผนที่ปิดรับสมาชิกใหม่แล้วยังมีคนสมัครอยู่ก่อนหน้า ต้องนับรวมใน
+   * activeSubscribers ต่อไป — ถ้ากรองด้วย isActive ตรงนี้ตัวเลขจะขาดหายไป
+   */
+  private async shopStats(
+    shopIds: string[],
+  ): Promise<Map<string, ShopStatsRow>> {
+    const stats = new Map<string, ShopStatsRow>();
+    for (const shopId of shopIds) stats.set(shopId, { ...EMPTY_SHOP_STATS });
+    if (shopIds.length === 0) return stats;
+
+    const products = await this.prisma.product.findMany({
+      where: { shopId: { in: shopIds }, ...PRODUCT_SELF_VISIBLE },
+      select: { id: true, shopId: true, plans: { select: { id: true } } },
+    });
+    if (products.length === 0) return stats;
+
+    const shopOfProduct = new Map<string, string>();
+    const planToProduct = new Map<string, string>();
+    const productIds: string[] = [];
+    for (const p of products) {
+      productIds.push(p.id);
+      shopOfProduct.set(p.id, p.shopId);
+      stats.get(p.shopId)!.productCount += 1;
+      for (const plan of p.plans) planToProduct.set(plan.id, p.id);
+    }
+
+    const [subsByPlan, reviewStats] = await Promise.all([
+      this.prisma.subscription.groupBy({
+        by: ['planId'],
+        where: { status: 'active', plan: { productId: { in: productIds } } },
+        _count: { _all: true },
+      }),
+      this.prisma.review.groupBy({
+        by: ['productId'],
+        where: { productId: { in: productIds } },
+        _avg: { rating: true },
+        _count: { _all: true },
+      }),
+    ]);
+
+    for (const s of subsByPlan) {
+      const productId = planToProduct.get(s.planId);
+      const shopId = productId ? shopOfProduct.get(productId) : undefined;
+      if (!shopId) continue;
+      stats.get(shopId)!.activeSubscribers += s._count._all;
+    }
+
+    // เฉลี่ยแบบถ่วงน้ำหนักด้วยจำนวนรีวิวจริงของแต่ละสินค้า — ไม่ใช่ "ค่าเฉลี่ยของค่าเฉลี่ย"
+    // ซึ่งจะให้น้ำหนักสินค้าที่มีรีวิวน้อยเท่ากับสินค้าที่มีรีวิวเยอะอย่างผิด ๆ
+    const ratingSum = new Map<string, number>();
+    for (const r of reviewStats) {
+      const shopId = shopOfProduct.get(r.productId);
+      if (!shopId) continue;
+      const row = stats.get(shopId)!;
+      row.reviewCount += r._count._all;
+      ratingSum.set(
+        shopId,
+        (ratingSum.get(shopId) ?? 0) + (r._avg.rating ?? 0) * r._count._all,
+      );
+    }
+    for (const [shopId, row] of stats) {
+      if (row.reviewCount > 0) {
+        row.rating =
+          Math.round((ratingSum.get(shopId)! / row.reviewCount) * 10) / 10;
+      }
+    }
+
+    return stats;
   }
 }
 

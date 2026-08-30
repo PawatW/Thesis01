@@ -1,12 +1,12 @@
 # Feature 10: Seller Shop — จัดการร้านค้า
 
-> เฟส: 4 | ฝั่ง: Seller | สถานะ: ✅ เสร็จ (2026-08-17) · ช่องโลโก้ + หน้าร้านสาธารณะเพิ่ม 2026-08-19 | Workflows: [W02](../workflows/w02-open-shop.md), [W08](../workflows/w08-seller-orders.md)
+> เฟส: 4 | ฝั่ง: Seller | สถานะ: ✅ เสร็จ (2026-08-17) · ช่องโลโก้ + หน้าร้านสาธารณะเพิ่ม 2026-08-19 · **กำลังเพิ่มแถบสถิติหน้าร้านสาธารณะ (2026-08-30 — ดู Acceptance Criteria)** | Workflows: [W02](../workflows/w02-open-shop.md), [W08](../workflows/w08-seller-orders.md)
 
 ## ทำอะไรได้
 
 - เปิดร้านจากหน้าโปรไฟล์ (ชื่อ + คำอธิบาย + โลโก้) — ไม่มีขั้นอนุมัติใน demo
 - สลับโหมด buyer ↔ seller ในแอพเดียว
-- หน้าร้านสาธารณะ (buyer เข้าดูได้จากหน้าสินค้า)
+- หน้าร้านสาธารณะ (buyer เข้าดูได้จากหน้าสินค้า) — รอบนี้เพิ่มแถบสถิติ (จำนวนสินค้า / สมาชิกที่สมัครอยู่ / คะแนนรีวิว / เข้าร่วมเมื่อ)
 - Dashboard: **subscriber active, MRR จำลอง, ยกเลิกเดือนนี้ (churn)** — จุดขายฝั่งร้าน: รายได้คาดการณ์ได้
 
 ## หน้าจอ & Routes
@@ -16,7 +16,7 @@
 | `(seller)/_layout.tsx` | tab ฝั่งร้าน: Dashboard / สินค้า / ออเดอร์ / โปรไฟล์ร้าน |
 | `(seller)/dashboard.tsx` | ตัวเลข 3 ใบ + รายการเหตุการณ์ล่าสุด (subscriber ใหม่/ยกเลิก) |
 | `(seller)/shop-settings.tsx` | แก้ชื่อ/โลโก้/คำอธิบาย/ปิดร้านชั่วคราว |
-| `(buyer)/shop/[id].tsx` | หน้าร้านสาธารณะ (สร้างใน feature 03 — reuse) |
+| `shop/[id].tsx` | หน้าร้านสาธารณะ (สร้างใน feature 03 — reuse) · path จริงคือ `anan/app/shop/[id].tsx` วางนอกกลุ่ม `(buyer)` เหมือน `compare.tsx`/`product/[id]` เพราะเป็นหน้าที่ push ทับ ไม่ใช่แท็บ (สเปกเดิมในไฟล์นี้และ [03-product-detail.md](03-product-detail.md) เขียนเป็น `(buyer)/shop/[id].tsx` ไว้ผิด — แจ้งผู้ใช้แล้วให้ตัดสินใจว่าจะแก้ไฟล์ 03 ด้วยหรือไม่) |
 
 ## Components หลัก
 
@@ -54,7 +54,7 @@ GET   /api/v1/seller/dashboard   → { activeSubscribers, monthlyRevenue, cancel
 - [x] เปิดร้านซ้ำไม่ได้ทั้ง UI และ DB (unique `owner_id` + 409 `SHOP_EXISTS`)
 - [x] ตัวเลข dashboard ตรงกับข้อมูลจริง — เทสเพิ่ม subscriber 1 → +1, ยกเลิก 1 → churn +1, MRR ขยับตาม (`seller.e2e-spec.ts`)
 - [x] **ร้านที่ถูกระงับ ยิง API ตั้ง `suspendedAt = null` เองไม่ได้** — ฟิลด์ไม่อยู่ใน DTO (400) และการแก้อื่น ๆ ได้ 409 (TC-061)
-- [ ] หน้าร้านสาธารณะ (`(buyer)/shop/[id].tsx`) — ยังไม่ได้ทำ ต่อยอดจาก catalog ใน Phase 7 ตอนโพลิช
+- [x] หน้าร้านสาธารณะ (`anan/app/shop/[id].tsx`) — **ตัวหน้ามีอยู่แล้ว** (ทำต่อยอดจาก catalog ใน Phase 7 ตอนโพลิช, 2026-08-19) **รอบนี้ (2026-08-30) เพิ่มแถบสถิติ**: จำนวนสินค้า / สมาชิกที่สมัครอยู่ (`activeSubscribers`) / คะแนนรีวิว+จำนวนรีวิว / เข้าร่วมเมื่อ ต่อยอดจาก `GET /catalog/shops/:id` ที่เพิ่ม 4 ฟิลด์นี้ ([02-catalog.md](02-catalog.md)) — **ยืนยันแล้ว 2026-08-30: TC-121 เทียบ `#shop-stat-products` กับ `count(*)` ใน DB จริง (Playwright 123/123 เขียว)**
 
 ## ข้อมูลที่เกี่ยวข้อง
 
@@ -63,3 +63,5 @@ GET   /api/v1/seller/dashboard   → { activeSubscribers, monthlyRevenue, cancel
 ## Out of scope
 
 - KYC/อนุมัติร้าน, หลายร้านต่อบัญชี, staff หลายคนต่อร้าน, กราฟรายงานย้อนหลัง
+- **ปุ่ม "ติดตาม" / "พูดคุย" บนหน้าร้านสาธารณะ — ไม่ทำ** เพราะระบบนี้ไม่มี follow/chat เลย (ไม่ใช่แค่ยังไม่ทำ UI — ไม่มีตารางเก็บข้อมูลรองรับ) เหตุผลเต็มว่าทำไมใช้ `activeSubscribers` แทน "ผู้ติดตาม" อยู่ที่ [02-catalog.md](02-catalog.md) หัวข้อ "ทำไมไม่มี ผู้ติดตาม / อัตราตอบแชท / ป้าย Mall แบบ Shopee"
+- **คูปองร้านค้าแบบแถบชมพูบนหน้าร้าน — ไม่ทำรอบนี้** เช่นเดียวกับที่ระบุไว้ใน [02-catalog.md](02-catalog.md) Out of scope

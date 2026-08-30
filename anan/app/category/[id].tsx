@@ -2,7 +2,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { TextField } from '@/components/TextField';
+import { SearchBar } from '@/components/SearchBar';
 import { Card, EmptyState, Screen, SectionHeader, Splash } from '@/components/ui';
 import { ProductCard } from '@/features/catalog/ProductCard';
 import { useProductGrid } from '@/features/catalog/useProductGrid';
@@ -85,9 +85,8 @@ export default function CategoryScreen() {
   return (
     <Screen>
       <SectionHeader title={name ?? 'สินค้าในหมวด'} />
-      <TextField
+      <SearchBar
         id="category-search"
-        label="ค้นหาในหมวดนี้"
         value={search}
         onChangeText={setSearch}
         placeholder="พิมพ์ชื่อสินค้า"

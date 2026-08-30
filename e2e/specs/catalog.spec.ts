@@ -9,7 +9,8 @@ import type { Page } from '@playwright/test';
 import { testCase, test, expect } from '../helpers/test-case';
 import { gotoApp, loginAs } from '../helpers/login';
 import * as ids from '../helpers/selectors';
-import { CATEGORIES, PRODUCTS } from '../helpers/test-data';
+import { CATEGORIES, PRODUCTS, SHOPS } from '../helpers/test-data';
+import { queryTestDatabase } from '../setup/database';
 
 const FEATURE = '02/03 — Catalog';
 
@@ -267,5 +268,93 @@ testCase(
         expect(grid.gridWidth - used).toBeLessThan(grid.cardWidth + grid.gap);
       });
     }
+  },
+);
+
+/**
+ * ค้นหาร้านค้า (feature 02, 2026-08-30) — ช่องเดียวค้นได้ทั้งชื่อสินค้าและชื่อร้าน
+ * เข้าได้จากช่องค้นหาในหน้าแรก (hero) หรือพิมพ์ตรงในหน้า `/search` เอง
+ *
+ * เคสกลุ่มนี้ก็เป็นการ "อ่านอย่างเดียว" เหมือนเคสข้างบน — ไม่เขียนอะไรลง DB
+ */
+testCase(
+  { id: 'TC-121', priority: 'P0', feature: FEATURE },
+  'พิมพ์ชื่อร้านจากหน้าแรกแล้วกดเข้าหน้าร้านได้ พร้อมจำนวนสินค้าตรงกับ DB จริง',
+  async ({ page }) => {
+    await test.step('Arrange — ล็อกอินเป็นผู้ซื้อแล้วเปิดหน้าแรก', async () => {
+      await loginAs(page, 'buyer');
+      await gotoApp(page, '/');
+    });
+
+    await test.step('Act — พิมพ์ "Bean" ในช่องค้นหาหน้าแรกแล้วกด Enter', async () => {
+      await page.locator(ids.home.search).fill('Bean');
+      await page.locator(ids.home.search).press('Enter');
+    });
+
+    await test.step('Assert — เข้าหน้า /search แล้วเห็นการ์ดร้าน Bean Story', async () => {
+      await expect(page.locator(ids.search.shops)).toBeVisible();
+      await expect(page.locator(ids.search.shop(SHOPS.beanStory.id))).toBeVisible();
+    });
+
+    await test.step('Act — กดการ์ดร้าน Bean Story', async () => {
+      await page.locator(ids.search.shop(SHOPS.beanStory.id)).click();
+    });
+
+    await test.step('Assert — เข้าหน้าร้าน Bean Story และจำนวนสินค้าตรงกับที่นับได้จาก DB (ไม่ hardcode)', async () => {
+      await expect(page.locator(ids.shopPage.name)).toHaveText('Bean Story');
+
+      // productCount ของ API นับเฉพาะสินค้าที่ isActive และไม่ถูกระงับ (PRODUCT_SELF_VISIBLE)
+      const [row] = await queryTestDatabase<{ n: string }>(
+        `select count(*)::text as n
+           from products
+          where shop_id = $1 and is_active = true and suspended_at is null`,
+        [SHOPS.beanStory.id],
+      );
+      await expect(page.locator(ids.shopPage.statProducts)).toContainText(
+        Number(row!.n).toLocaleString('th-TH'),
+      );
+    });
+  },
+);
+
+testCase(
+  { id: 'TC-122', priority: 'P2', feature: FEATURE },
+  'ค้นหาคำที่ไม่มีทั้งร้านและสินค้าใดตรงในหน้าค้นหารวม',
+  async ({ page }) => {
+    await test.step('Arrange — ล็อกอินแล้วเปิดหน้าค้นหา', async () => {
+      await loginAs(page, 'buyer');
+      await gotoApp(page, '/search');
+    });
+
+    await test.step('Act — พิมพ์คำที่ไม่มีทางตรงกับร้านหรือสินค้าใด', async () => {
+      await page.locator(ids.search.input).fill('zzzznotfound');
+    });
+
+    await test.step('Assert — เห็นสถานะไม่พบผลลัพธ์ที่อ้างคำค้นจริง ไม่ใช่สถานะ "ยังไม่ค้นหา"', async () => {
+      // #search-empty ใช้ร่วมกัน 2 สถานะ (ยังไม่พิมพ์คำค้น vs. ค้นแล้วไม่พบ) — ต้อง assert ข้อความด้วย
+      await expect(page.locator(ids.search.empty)).toContainText('ไม่พบ "zzzznotfound"');
+      await expect(page.locator(ids.search.shops)).toHaveCount(0);
+    });
+  },
+);
+
+testCase(
+  { id: 'TC-123', priority: 'P1', feature: FEATURE },
+  'ค้นด้วยชื่อร้านแล้วกริดสินค้าโชว์เฉพาะสินค้าของร้านนั้น',
+  async ({ page }) => {
+    await test.step('Arrange — ล็อกอินแล้วเปิดหน้าค้นหา', async () => {
+      await loginAs(page, 'buyer');
+      await gotoApp(page, '/search');
+    });
+
+    await test.step('Act — ค้นด้วยชื่อร้าน "Herbal" (ไม่ใช่ชื่อสินค้า)', async () => {
+      await page.locator(ids.search.input).fill('Herbal');
+    });
+
+    await test.step('Assert — กริดมีสินค้าของ Herbal Care และไม่มีสินค้าของร้านอื่น (กาแฟของ Bean Story)', async () => {
+      await expect(page.locator(ids.search.grid)).toBeVisible();
+      await expect(page.locator(ids.search.product(PRODUCTS.herbalShampoo.id))).toBeVisible();
+      await expect(page.locator(ids.search.product(PRODUCTS.coffeeMedium.id))).toHaveCount(0);
+    });
   },
 );

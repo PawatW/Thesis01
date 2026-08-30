@@ -3,10 +3,12 @@ import { Public } from '../common/decorators/public.decorator';
 import { CatalogService } from './catalog.service';
 import {
   ListProductsQuery,
+  ListShopsQuery,
   type CategoryResponse,
   type PlanLookupResponse,
   type ProductCardResponse,
   type ProductDetailResponse,
+  type ShopCardResponse,
   type ShopPageResponse,
 } from './dto/catalog.dto';
 
@@ -35,6 +37,14 @@ export class CatalogController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ProductDetailResponse> {
     return this.catalog.getProduct(id);
+  }
+
+  // ★ ต้องอยู่ก่อน @Get('shops/:id') เสมอ ★ Nest จับ route ตามลำดับที่ประกาศ
+  // ในไฟล์ ถ้าสลับที่กัน คำขอ GET /catalog/shops จะไปแมตช์ 'shops/:id' แทน
+  // แล้ว ParseUUIDPipe จะเด้ง 400 เพราะ 'shops' ไม่ใช่ uuid
+  @Get('shops')
+  shops(@Query() query: ListShopsQuery): Promise<ShopCardResponse[]> {
+    return this.catalog.listShops(query);
   }
 
   @Get('shops/:id')
