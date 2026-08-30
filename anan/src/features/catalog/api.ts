@@ -107,12 +107,18 @@ export async function listCategories(): Promise<Category[]> {
 
 export async function listProducts(opts: {
   categoryId?: number;
+  /** กรองหลายหมวดพร้อมกัน (หน้าแรก) — ส่งเป็น `categories=1,4` ให้ API */
+  categoryIds?: number[];
   search?: string;
   limit?: number;
   sort?: ProductSort;
 }): Promise<ProductCardData[]> {
   const params = new URLSearchParams();
-  if (opts.categoryId != null) params.set('category', String(opts.categoryId));
+  if (opts.categoryIds != null && opts.categoryIds.length > 0) {
+    params.set('categories', opts.categoryIds.join(','));
+  } else if (opts.categoryId != null) {
+    params.set('category', String(opts.categoryId));
+  }
   if (opts.search != null && opts.search.trim().length > 0) {
     params.set('q', opts.search.trim());
   }

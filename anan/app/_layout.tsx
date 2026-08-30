@@ -51,6 +51,7 @@ export default function RootLayout() {
           <Stack.Screen name="category/[id]" options={{ headerShown: true, title: 'สินค้าในหมวด' }} />
           <Stack.Screen name="compare" options={{ headerShown: true, title: 'เปรียบเทียบสินค้า' }} />
           <Stack.Screen name="shop/[id]" options={{ headerShown: true, title: 'ร้านค้า' }} />
+          <Stack.Screen name="search" options={{ headerShown: true, title: 'ค้นหา' }} />
         </Stack>
         </CompareProvider>
       </AuthProvider>

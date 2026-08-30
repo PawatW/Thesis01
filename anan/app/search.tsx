@@ -83,7 +83,6 @@ export default function SearchScreen() {
 
   return (
     <Screen>
-      <SectionHeader title="ค้นหา" />
       <SearchBar
         id="search-input"
         submitId="search-submit"

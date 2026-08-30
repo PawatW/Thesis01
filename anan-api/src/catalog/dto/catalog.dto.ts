@@ -1,5 +1,14 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export const PRODUCT_SORT = [
   'popular',
@@ -17,6 +26,27 @@ export class ListProductsQuery {
   @IsInt()
   @Min(1)
   category?: number;
+
+  /**
+   * หลายหมวดพร้อมกัน — หน้าแรกกรองด้วย checkbox ได้หลายหมวด (feature 02)
+   * รับเป็น `categories=1,4,7` แล้วแปลงเป็น number[] ตรงนี้ที่เดียว
+   * ค่าที่ไม่ใช่จำนวนเต็มบวกจะกลายเป็น NaN แล้วตกที่ @IsInt() (400) ไม่ไหลไป Prisma
+   */
+  @IsOptional()
+  @Transform(({ value }): unknown =>
+    typeof value === 'string'
+      ? value
+          .split(',')
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0)
+          .map((v) => Number(v))
+      : value,
+  )
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  categories?: number[];
 
   @IsOptional()
   @Transform(({ value }): unknown =>

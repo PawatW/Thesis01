@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/Button';
+import { DateField } from '@/components/DateField';
 import { TextField } from '@/components/TextField';
 import {
   Card,
@@ -23,7 +24,7 @@ import {
   type ShopCoupon,
 } from '@/features/coupons/api';
 import { listMyProducts, type SellerProduct } from '@/features/seller/api';
-import { formatThaiDay, todayISO } from '@/lib/date';
+import { addDays, formatThaiDay, todayISO } from '@/lib/date';
 import { colors, radius, space, statusTones, type } from '@/lib/theme';
 
 const STATE_TONE: Record<CouponState, 'active' | 'paused' | 'cancelled'> = {
@@ -119,6 +120,9 @@ export default function SellerCouponsScreen() {
   };
 
   const valueNum = num(value);
+  // ปฏิทินของ "ใช้ได้ถึง" ต้องเริ่มที่วันถัดจากวันเริ่ม — เงื่อนไขเดียวกับ `canSubmit` ที่บังคับ endsAt > startsAt
+  const endsMin = /^\d{4}-\d{2}-\d{2}$/.test(startsAt) ? addDays(startsAt, 1) : undefined;
+
   const canSubmit =
     code.trim().length >= 4 &&
     title.trim() !== '' &&
@@ -210,19 +214,18 @@ export default function SellerCouponsScreen() {
           onChangeText={setMinOrder}
           keyboardType="numeric"
         />
-        <TextField
+        <DateField
           id="seller-coupon-starts"
-          label="เริ่มใช้ได้ (YYYY-MM-DD)"
+          label="เริ่มใช้ได้"
           value={startsAt}
-          onChangeText={setStartsAt}
-          maxLength={10}
+          onChange={setStartsAt}
         />
-        <TextField
+        <DateField
           id="seller-coupon-ends"
-          label="ใช้ได้ถึง (YYYY-MM-DD)"
+          label="ใช้ได้ถึง"
           value={endsAt}
-          onChangeText={setEndsAt}
-          maxLength={10}
+          onChange={setEndsAt}
+          minDate={endsMin}
         />
         <TextField
           id="seller-coupon-quota"

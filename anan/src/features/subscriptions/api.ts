@@ -154,13 +154,69 @@ export const changeAddress = (id: string, addressId: string): Promise<ActionResu
   action(id, 'address', { addressId });
 export const cancel = (id: string): Promise<ActionResult> => action(id, 'cancel');
 
-export function monthlySpend(items: SubscriptionCard[]): number {
-  return items
-    .filter((s) => s.status === 'active')
-    .reduce((sum, s) => {
-      const factor = s.cycle === '2w' ? 2 : s.cycle === '2m' ? 0.5 : 1;
-      return sum + s.pricePerCycle * s.quantity * factor;
-    }, 0);
+/** หนึ่งรอบที่จะถูกตัดเงินจริงในเดือนปฏิทินนี้ */
+export type MonthCharge = {
+  subscriptionId: string;
+  productName: string;
+  shopName: string;
+  /** วันที่ engine จะสร้างออเดอร์ (Asia/Bangkok) */
+  date: string;
+  /** ยอดที่จะถูกตัดของรอบนั้น — รอบถัดไปหักคูปองที่จองไว้แล้ว */
+  amount: number;
+  /** ยอดเต็มก่อนหักคูปอง — เท่ากับ `amount` เมื่อไม่ได้จองคูปองไว้ */
+  grossAmount: number;
+  /** true เฉพาะรอบถัดไปที่มีคูปองจองไว้ (คูปองจองได้ทีละรอบเท่านั้น) */
+  hasCoupon: boolean;
+  /** รอบนี้ค้างมาจากอดีต — engine จะเก็บตกให้ในวันที่รันครั้งถัดไป */
+  overdue: boolean;
+};
+
+/**
+ * ทุกรอบที่จะถูกตัดเงิน **จริง** ภายในเดือนปฏิทินปัจจุบัน เรียงตามวัน
+ *
+ * ต่างจากการเฉลี่ยแบบเดิม (2w ×2 · 2m ×0.5) ที่นับรายการซึ่งยังไม่ถึงรอบในเดือนนี้
+ * เข้ามาด้วย — ตัวเลขนั้นตอบว่า "โดยเฉลี่ยเดือนละเท่าไหร่" ไม่ใช่ "เดือนนี้จะโดนตัด
+ * เท่าไหร่" ซึ่งเป็นคำถามที่ผู้ใช้ถามจริงเมื่อเห็นการ์ดนี้
+ *
+ * กติกาที่ต้องตรงกับ engine (W06):
+ * - เดินบน "กริดของหมุด" ด้วย `nextCycleAfter` เหมือน `skipTargetDate` — รอบ 2 สัปดาห์
+ *   จึงตกในเดือนเดียวกัน 2 หรือ 3 ครั้งตามปฏิทินจริง ไม่ใช่ ×2 ตายตัว
+ * - รายการที่ค้าง (`next_order_date < วันนี้` เพราะ engine ยังไม่ได้รัน) ถูกหนีบมาเป็น
+ *   วันนี้ เพราะเงื่อนไขของ engine คือ `<=` ไม่ใช่ `=` — มันจะเก็บตกให้ ไม่ใช่ข้ามไป
+ * - นับเฉพาะ `active` · `paused` ไม่ถูกตัดเงินจนกว่าจะกดกลับมาใช้งาน
+ * - คูปองจองได้เฉพาะ "รอบถัดไป" รอบเดียว รอบที่เหลือในเดือนเดียวกันจึงเป็นราคาเต็ม
+ */
+export function monthCharges(items: SubscriptionCard[], todayIso = todayISO()): MonthCharge[] {
+  const monthPrefix = todayIso.slice(0, 7);
+  const charges: MonthCharge[] = [];
+
+  for (const s of items) {
+    if (s.status !== 'active' || s.nextOrderDate == null) continue;
+
+    const gross = s.pricePerCycle * s.quantity;
+    // เก็บตกรอบที่ค้าง: engine ใช้ `<= วันนี้` จึงตัดให้ในวันที่รันครั้งถัดไป
+    const overdue = s.nextOrderDate < todayIso;
+    let date = overdue ? todayIso : s.nextOrderDate;
+    let first = true;
+
+    // ปีละ 26 รอบเป็นเพดานของรอบถี่สุด (2w) — กันลูปไม่รู้จบถ้าข้อมูลเพี้ยน
+    for (let guard = 0; guard < 26 && date.slice(0, 7) === monthPrefix; guard++) {
+      charges.push({
+        subscriptionId: s.id,
+        productName: s.productName,
+        shopName: s.shopName,
+        date,
+        amount: first ? s.couponNetAmount : gross,
+        grossAmount: gross,
+        hasCoupon: first && s.couponDiscount > 0,
+        overdue: first && overdue,
+      });
+      first = false;
+      date = nextCycleAfter(s.cycleAnchorDate, s.cycle, date);
+    }
+  }
+
+  return charges.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
 
 export function cycleLabel(cycle: string): string {

@@ -27,7 +27,8 @@ import {
   daysUntil,
   formatThaiDate,
   listMySubscriptions,
-  monthlySpend,
+  monthCharges,
+  type MonthCharge,
   pause,
   previewSkip,
   reschedule,
@@ -156,16 +157,22 @@ export default function SubscriptionsScreen() {
   const active = items.filter((s) => s.status === 'active');
   const paused = items.filter((s) => s.status === 'paused');
   const cancelled = items.filter((s) => s.status === 'cancelled');
-  const spend = monthlySpend(items);
+  const charges = monthCharges(items);
+  const spend = charges.reduce((sum, c) => sum + c.amount, 0);
 
   return (
     <Screen>
       <Card>
         <SectionHeader title="รายการของฉัน" />
         <Text id="subs-spend" style={styles.spend}>
-          เดือนนี้จ่ายรวม ≈ ฿{spend.toLocaleString('th-TH')}
-          <Text style={styles.muted}> จาก {active.length} รายการ (โดยประมาณ)</Text>
+          เดือนนี้จ่ายรวม ฿{spend.toLocaleString('th-TH')}
+          <Text style={styles.muted}>
+            {charges.length > 0
+              ? ` จาก ${charges.length} รอบ ใน ${new Set(charges.map((c) => c.subscriptionId)).size} รายการ`
+              : ' — เดือนนี้ไม่มีรอบที่ต้องจ่าย'}
+          </Text>
         </Text>
+        <MonthSchedule charges={charges} />
         <DemoBadge />
       </Card>
 
@@ -731,6 +738,42 @@ function ConfirmDialog({
   );
 }
 
+/**
+ * ปฏิทินการตัดเงินของเดือนนี้ — "จ่ายไรวันไหน"
+ *
+ * การ์ดสรุปบอกยอดรวมได้ก็จริง แต่ยอดรวมอย่างเดียวตอบไม่ได้ว่าเงินก้อนนี้จะออกวันไหน
+ * ซึ่งเป็นสิ่งที่ต้องรู้เพื่อวางแผน · รายการนี้จึงเรียงตามวันจริงที่ engine จะสร้างออเดอร์
+ * ไม่ใช่เรียงตามรายการ subscription
+ */
+function MonthSchedule({ charges }: { charges: MonthCharge[] }) {
+  if (charges.length === 0) return null;
+
+  return (
+    <View id="subs-schedule" style={styles.schedule}>
+      {charges.map((c, i) => (
+        <View
+          key={`${c.subscriptionId}-${c.date}`}
+          id={`subs-schedule-row-${c.subscriptionId}-${c.date}`}
+          style={[styles.scheduleRow, i > 0 && styles.scheduleRowDivided]}
+        >
+          <Text style={styles.scheduleDate}>{formatThaiDate(c.date)}</Text>
+          <View style={styles.scheduleMain}>
+            <Text style={styles.scheduleName} numberOfLines={1}>
+              {c.productName}
+            </Text>
+            <Text style={styles.scheduleMeta} numberOfLines={1}>
+              {c.shopName}
+              {c.overdue ? ' · ค้างจากรอบก่อน จะตัดเมื่อระบบรันรอบถัดไป' : ''}
+              {c.hasCoupon ? ` · คูปองลด ฿${(c.grossAmount - c.amount).toLocaleString('th-TH')}` : ''}
+            </Text>
+          </View>
+          <Text style={styles.scheduleAmount}>฿{c.amount.toLocaleString('th-TH')}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** สีของการนับถอยหลัง — สงวนไว้ให้เวลาเท่านั้น (ดู theme.ts) */
 function timeColor(days: number): string {
   if (days <= 3) return colors.timeUrgent;
@@ -740,6 +783,25 @@ function timeColor(days: number): string {
 
 const styles = StyleSheet.create({
   spend: { ...type.h3, color: colors.text },
+  schedule: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+  },
+  scheduleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingVertical: space.md,
+  },
+  scheduleRowDivided: { borderTopWidth: 1, borderTopColor: colors.border },
+  // วันอยู่ซ้ายสุดและกว้างคงที่ เพื่อให้ทั้งคอลัมน์อ่านเป็น "ปฏิทิน" ได้ในสายตาเดียว
+  scheduleDate: { ...type.caption, color: colors.textMuted, width: 88 },
+  scheduleMain: { flex: 1, gap: 2 },
+  scheduleName: { ...type.small, color: colors.text },
+  scheduleMeta: { ...type.caption, color: colors.textMuted },
+  scheduleAmount: { ...type.bodyStrong, color: colors.text },
   muted: { ...type.caption, color: colors.textMuted },
   toast: { backgroundColor: statusTones.active.bg, borderRadius: radius.md, padding: space.md },
   toastText: { ...type.small, color: statusTones.active.fg },

@@ -903,3 +903,63 @@ testCase(
     });
   },
 );
+
+// ==========================================================
+// ปฏิทินเลือกวันของฟอร์มออกคูปอง (`anan/src/components/DateField.tsx`)
+// ==========================================================
+
+/** โค้ดคูปองของเคสปฏิทิน — ต้องไม่ชน UNIQUE กับรอบก่อนหน้า */
+const PICKER_CODE = `E2ECAL${String(Date.now()).slice(-6)}`;
+
+testCase(
+  { id: 'TC-124', priority: 'P1', feature: FEATURE },
+  'ร้านเลือก "ใช้ได้ถึง" จากปฏิทินได้ และวันที่ถูกบันทึกตรงกับวันที่กด',
+  async ({ page }) => {
+    // เลือกวันที่ 15 ของอีก 2 เดือนข้างหน้า — ไกลกว่า `endsMin` (วันพรุ่งนี้) เสมอ
+    // ไม่ว่าจะรันเทสวันไหนของเดือน จึงไม่มีวันโดนปิดใช้งานในปฏิทิน
+    // ปฏิทินเปิดที่เดือนของ `endsMin` = "พรุ่งนี้" ตามเวลาไทย จึงต้องนับจากวันนั้น
+    // ไม่ใช่จากวันนี้ — ไม่งั้นการรันในวันสุดท้ายของเดือนจะเลื่อนไปคนละเดือน
+    const tomorrow = new Date(Date.now() + 7 * 60 * 60 * 1000 + 86_400_000);
+    const target = new Date(
+      Date.UTC(tomorrow.getUTCFullYear(), tomorrow.getUTCMonth() + 2, 15),
+    );
+    const targetISO = target.toISOString().slice(0, 10);
+
+    await test.step('Arrange — ล็อกอินเป็นร้านแล้วเปิดหน้าคูปองของร้าน', async () => {
+      await loginAs(page, 'seller');
+      await gotoApp(page, '/(seller)/coupons');
+      await expect(page.locator(ids.sellerCoupons.create)).toBeVisible();
+    });
+
+    await test.step('Act — กรอกคูปอง แล้วเลือกวันหมดอายุจากปฏิทิน (ไม่พิมพ์เอง)', async () => {
+      await page.locator(ids.sellerCoupons.code).fill(PICKER_CODE);
+      await page.locator(ids.sellerCoupons.title).fill('คูปองเลือกวันจากปฏิทิน');
+      await page.locator(ids.sellerCoupons.value).fill('5');
+
+      await page.locator(ids.sellerCoupons.endsOpen).click();
+      await expect(page.locator(ids.sellerCoupons.endsCalendar)).toBeVisible();
+      // ปฏิทินเปิดที่เดือนของ `endsMin` — เดินไปข้างหน้า 2 เดือนให้ถึงเดือนเป้าหมาย
+      await page.locator(ids.sellerCoupons.endsNextMonth).click();
+      await page.locator(ids.sellerCoupons.endsNextMonth).click();
+      await page.locator(ids.sellerCoupons.endsDay(targetISO)).click();
+
+      // ปฏิทินต้องปิดเอง และค่าที่เลือกเด้งกลับเข้าช่องกรอกเป็น YYYY-MM-DD
+      await expect(page.locator(ids.sellerCoupons.endsCalendar)).toBeHidden();
+      await expect(page.locator(ids.sellerCoupons.ends)).toHaveValue(targetISO);
+
+      await page.locator(ids.sellerCoupons.scope('all')).click();
+      await page.locator(ids.sellerCoupons.create).click();
+      await expect(page.locator(ids.sellerCoupons.toast)).toBeVisible();
+    });
+
+    await test.step('Assert — ★ ฐานข้อมูล ★ ends_at เป็นสิ้นวันตามเวลาไทยของวันที่กด', async () => {
+      const [row] = await queryTestDatabase<{ ends_day: string }>(
+        `select to_char(ends_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as ends_day
+           from coupons where code = $1`,
+        [PICKER_CODE],
+      );
+      expect(row, 'ต้องมีคูปองที่สร้างจากปฏิทินในฐานข้อมูล').toBeDefined();
+      expect(row!.ends_day).toBe(targetISO);
+    });
+  },
+);

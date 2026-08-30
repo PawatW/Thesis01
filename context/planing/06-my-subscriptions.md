@@ -5,7 +5,7 @@
 
 ## ทำอะไรได้
 
-- Dashboard รวม: แยกกลุ่ม active / paused / cancelled + การ์ดสรุป "เดือนนี้จ่ายรวม ≈ ฿X จาก Y รายการ"
+- Dashboard รวม: แยกกลุ่ม active / paused / cancelled + การ์ดสรุป "เดือนนี้จ่ายรวม ฿X จาก Y รอบ" พร้อมปฏิทินว่ารอบไหนตัดวันไหน — เป็นยอดที่ตัดจริงในเดือนปฏิทินนี้ ไม่ใช่ค่าเฉลี่ยต่อเดือน (กติกาการนับอยู่ใน [W05](../workflows/w05-manage-subscription.md))
 - ต่อรายการ: **Pause / Resume / Skip รอบ / เลื่อนวันส่ง / เปลี่ยนรอบ / เปลี่ยนที่อยู่ / Cancel** — กติกาแต่ละ action + state machine อยู่ใน [W05](../workflows/w05-manage-subscription.md) (source of truth)
 - หน้ารายละเอียด: ข้อมูลแผน + ประวัติออเดอร์ของ sub นี้ + timeline เหตุการณ์ (จาก events)
 

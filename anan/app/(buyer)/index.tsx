@@ -20,7 +20,7 @@ import {
   cycleLabel,
   daysUntil,
   listMySubscriptions,
-  monthlySpend,
+  monthCharges,
   type SubscriptionCard,
 } from '@/features/subscriptions/api';
 import { breakpoints, categoryTone, colors, layout, radius, space, type } from '@/lib/theme';
@@ -36,6 +36,10 @@ export default function BuyerHome() {
   const [subsError, setSubsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [homeSearch, setHomeSearch] = useState('');
+  /** หมวดที่ติ๊กไว้ — ว่าง = ไม่กรอง (โชว์ "คนสมัครเยอะที่สุด" ตามเดิม) */
+  const [picked, setPicked] = useState<number[]>([]);
+  /** ผลกรองพร้อมชุดหมวดที่ขอไป — เก็บคู่กันเพื่อทิ้งผลของชุดเก่าที่มาช้าได้ */
+  const [result, setResult] = useState<{ key: string; rows: ProductCardData[] } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +65,38 @@ export default function BuyerHome() {
     };
   }, []);
 
+  /**
+   * กรองในหน้านี้เลย ไม่เด้งไปหน้าหมวด — ผู้ซื้อของใช้ประจำมักคิดเป็นชุด
+   * ("ยาสีฟัน + แชมพู") การบังคับให้เข้าทีละหมวดทำให้เทียบข้ามหมวดไม่ได้
+   *
+   * ยิง API ใหม่ทุกครั้งแทนที่จะกรอง `featured` ในเครื่อง เพราะ `featured`
+   * มีแค่ 8 ชิ้นแรก — กรองในเครื่องจะได้ผลลัพธ์ที่ "หายไป" โดยไม่มีใครรู้
+   */
+  const pickedKey = picked.join(',');
+
+  useEffect(() => {
+    if (pickedKey === '') return;
+    let cancelled = false;
+    void (async () => {
+      const rows = await listProducts({
+        categoryIds: pickedKey.split(',').map(Number),
+        limit: 60,
+        sort: 'popular',
+      });
+      if (!cancelled) setResult({ key: pickedKey, rows });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pickedKey]);
+
+  /**
+   * ผลของชุดหมวดอื่นถือว่ายังไม่มีผล — ติ๊กหมวดที่สามระหว่างที่คำขอเก่ายังไม่กลับ
+   * ต้องเห็น "กำลังโหลด…" ไม่ใช่ผลของสองหมวดแรกที่ตอนนี้ผิดไปแล้ว
+   */
+  const filtered = pickedKey !== '' && result?.key === pickedKey ? result.rows : null;
+  const filtering = pickedKey !== '' && filtered === null;
+
   const { cardWidth, columns } = useProductGrid({ rail: true, inCard: true });
   const hasRail = width >= breakpoints.desktop;
 
@@ -70,8 +106,12 @@ export default function BuyerHome() {
    */
   const shown = featured.slice(0, Math.ceil(6 / columns) * columns);
 
+  /** ตอนกรองอยู่ให้เห็นทุกชิ้นที่ตรง ไม่ตัดให้แถวสวย — คนกำลังหาของอยู่ */
+  const gridItems = filtered ?? shown;
+
   const active = subs.filter((s) => s.status === 'active');
-  const spend = monthlySpend(subs);
+  const charges = monthCharges(subs);
+  const spend = charges.reduce((sum, c) => sum + c.amount, 0);
 
   /** รายการที่ใกล้ถึงรอบที่สุด — พระเอกของหน้านี้ */
   const upNext = [...active]
@@ -132,29 +172,66 @@ export default function BuyerHome() {
 
             {active.length > 0 ? (
               <Text style={styles.heroSpend}>
-                เดือนนี้จ่ายรวม ≈ ฿{spend.toLocaleString('th-TH')} จาก {active.length} รายการ
+                {charges.length > 0
+                  ? `เดือนนี้จ่ายรวม ฿${spend.toLocaleString('th-TH')} จาก ${charges.length} รอบ`
+                  : 'เดือนนี้ไม่มีรอบที่ต้องจ่าย'}
               </Text>
             ) : null}
           </View>
 
           <Card>
-            <SectionHeader title="หมวดสินค้า" />
+            <SectionHeader
+              title="หมวดสินค้า"
+              action={
+                picked.length > 0 ? (
+                  <Pressable
+                    id="home-category-clear"
+                    accessibilityRole="button"
+                    onPress={() => setPicked([])}
+                    style={styles.clear}
+                  >
+                    <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+                    <Text style={styles.clearText}>ล้างตัวกรอง ({picked.length})</Text>
+                  </Pressable>
+                ) : undefined
+              }
+            />
             <View style={styles.chips}>
               {categories.map((c) => {
                 const tone = categoryTone(c.icon);
+                const on = picked.includes(c.id);
                 return (
                   <Pressable
                     key={c.id}
                     id={`home-category-${c.id}`}
-                    accessibilityRole="button"
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    accessibilityLabel={c.name}
                     onPress={() =>
-                      router.push({ pathname: '/category/[id]', params: { id: String(c.id), name: c.name } })
+                      setPicked((prev) =>
+                        prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+                      )
                     }
                     style={({ pressed }) => [
                       styles.chip,
-                      { backgroundColor: tone.tint, borderColor: pressed ? tone.solid : 'transparent' },
+                      {
+                        backgroundColor: tone.tint,
+                        // ติ๊กแล้วต้องอ่านออกโดยไม่พึ่งสีอย่างเดียว — มีทั้งกรอบเข้ม
+                        // และกล่องเช็คนำหน้า (ผู้ใช้ตาบอดสีเห็นเครื่องหมายถูก)
+                        borderColor: on || pressed ? tone.solid : 'transparent',
+                        borderWidth: on ? 2 : 1,
+                      },
                     ]}
                   >
+                    <View
+                      style={[
+                        styles.box,
+                        { borderColor: tone.solid },
+                        on && { backgroundColor: tone.solid },
+                      ]}
+                    >
+                      {on ? <Ionicons name="checkmark" size={12} color={colors.surface} /> : null}
+                    </View>
                     <Ionicons name={iconName(c.icon)} size={16} color={tone.solid} />
                     <Text style={[styles.chipText, { color: tone.solid }]}>{c.name}</Text>
                   </Pressable>
@@ -164,12 +241,31 @@ export default function BuyerHome() {
           </Card>
 
           <Card>
-            <SectionHeader title="คนสมัครเยอะที่สุด" />
-            <View id="home-featured" style={styles.grid}>
-              {shown.map((p) => (
-                <ProductCard key={p.id} id={`home-product-${p.id}`} item={p} width={cardWidth} />
-              ))}
-            </View>
+            <SectionHeader
+              title={picked.length > 0 ? 'สินค้าในหมวดที่เลือก' : 'คนสมัครเยอะที่สุด'}
+              action={
+                filtered != null ? (
+                  <Text id="home-featured-count" style={styles.muted}>
+                    {filtered.length} รายการ
+                  </Text>
+                ) : undefined
+              }
+            />
+            {filtering ? (
+              <Text style={styles.muted}>กำลังโหลด…</Text>
+            ) : filtered != null && filtered.length === 0 ? (
+              <EmptyState
+                id="home-featured-empty"
+                title="ยังไม่มีสินค้าในหมวดที่เลือก"
+                body="ลองเลือกหมวดอื่นเพิ่ม หรือล้างตัวกรองเพื่อดูสินค้าทั้งหมด"
+              />
+            ) : (
+              <View id="home-featured" style={styles.grid}>
+                {gridItems.map((p) => (
+                  <ProductCard key={p.id} id={`home-product-${p.id}`} item={p} width={cardWidth} />
+                ))}
+              </View>
+            )}
           </Card>
 
           {!hasRail ? nextPanel : null}
@@ -318,6 +414,16 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   chipText: { ...type.caption },
+  box: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clear: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  clearText: { ...type.caption, color: colors.textMuted },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
   row: {
     backgroundColor: colors.surfaceAlt,

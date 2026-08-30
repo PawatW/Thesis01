@@ -310,7 +310,7 @@ testCase(
 
 testCase(
   { id: 'TC-047', priority: 'P1', feature: FEATURE },
-  'ยอดใช้จ่ายต่อเดือนโดยประมาณถูกแสดงพร้อมป้าย DEMO',
+  'ยอดที่จะถูกตัดจริงในเดือนนี้ถูกแสดงพร้อมป้าย DEMO',
   async ({ page }) => {
     await test.step('Arrange — ล็อกอินเป็นผู้ซื้อที่มีรายการใช้งานอยู่', async () => {
       await loginAs(page, 'buyer');
@@ -324,6 +324,81 @@ testCase(
       await expect(page.locator(ids.subscriptions.spend)).toContainText('฿');
       await expect(page.locator(ids.subscriptions.spend)).toContainText('เดือนนี้จ่ายรวม');
       await expect(page.getByText('DEMO — ไม่มีการตัดเงินจริง').first()).toBeVisible();
+    });
+  },
+);
+
+testCase(
+  { id: 'TC-125', priority: 'P1', feature: FEATURE },
+  'ปฏิทินการตัดเงินของเดือนนี้ลงวันตรงกับ next_order_date และยอดตรงกับราคาคูณจำนวนใน DB',
+  async ({ page }) => {
+    /*
+     * ★ เลือกเป้าหมายจาก DB ตอนรัน ไม่ใช่ผูกกับ subscription ใบใดใบหนึ่งของ seed ★
+     * เคสของ engine/coupons ที่รันก่อนหน้าเลื่อน `next_order_date` ของ seed ไปได้
+     * (เจอจริงตอนรันทั้งชุด: ยาสีฟันขยับจาก "วันนี้" ไปเป็นเดือนถัดไป) — ผูกกับใบเดิม
+     * แล้วเคสจะแดงเพราะลำดับการรัน ไม่ใช่เพราะหน้าจอผิด
+     *
+     * สิ่งที่เคสนี้การันตีคือ **หน้าจอตรงกับ DB**: รอบแรกที่ตกในเดือนปฏิทินนี้ต้อง
+     * ปรากฏในปฏิทินด้วยวันและยอดเดียวกับที่ฐานข้อมูลถืออยู่
+     */
+    const rows = await queryTestDatabase<{
+      id: string;
+      next_order_date: string;
+      amount: string;
+    }>(
+      // ยอดที่คาดหวังต้องหักคูปองที่ "จองไว้" กับรอบถัดไปด้วย เพราะนั่นคือยอดที่จะถูก
+      // ตัดจริง (เคสของ feature 18 ที่รันก่อนหน้าจองคูปองค้างไว้ได้)
+      //
+      // `greatest(next_order_date, วันนี้)` = วันที่ engine จะตัดจริง — รอบที่ค้างจาก
+      // อดีต (engine ยังไม่ได้รัน) ถูกเก็บตกในวันที่รันครั้งถัดไป ไม่ใช่ข้ามไป จึงต้อง
+      // เทียบด้วยวันที่หนีบแล้วให้ตรงกับที่หน้าจอลงในปฏิทิน
+      `select s.id,
+              greatest(s.next_order_date, $2::date)::text as next_order_date,
+              (p.price_per_cycle * s.quantity
+                 - coalesce((select sum(r.discount_amount)
+                               from coupon_redemptions r
+                              where r.subscription_id = s.id
+                                and r.status = 'reserved'), 0))::numeric::text as amount
+         from subscriptions s
+         join product_plans p on p.id = s.plan_id
+        where s.buyer_id = $1
+          and s.status = 'active'
+          and s.next_order_date is not null
+          and date_trunc('month', greatest(s.next_order_date, $2::date))
+              = date_trunc('month', $2::date)
+        order by 2`,
+      [USERS.buyer.id, todayISO()],
+    );
+
+    await test.step('Arrange — ล็อกอินเป็นผู้ซื้อของ seed', async () => {
+      await loginAs(page, 'buyer');
+    });
+
+    await test.step('Act — เปิดหน้ารายการของฉัน', async () => {
+      await gotoApp(page, '/subscriptions');
+    });
+
+    const first = rows[0];
+    if (first == null) {
+      await test.step('Assert — ไม่มีรอบในเดือนนี้ → ต้องไม่มีปฏิทินให้เข้าใจผิด', async () => {
+        await expect(page.locator(ids.subscriptions.schedule)).toHaveCount(0);
+        await expect(page.locator(ids.subscriptions.spend)).toContainText(
+          'ไม่มีรอบที่ต้องจ่าย',
+        );
+      });
+      return;
+    }
+
+    await test.step('Assert — รอบแรกของเดือนนี้ปรากฏในปฏิทิน พร้อมวันและยอดที่ตรงกับ DB', async () => {
+      await expect(page.locator(ids.subscriptions.schedule)).toBeVisible();
+
+      const row = page.locator(
+        ids.subscriptions.scheduleRow(first.id, first.next_order_date),
+      );
+      await expect(row).toBeVisible();
+      await expect(row).toContainText(
+        `฿${Number(first.amount).toLocaleString('en-US')}`,
+      );
     });
   },
 );

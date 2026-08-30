@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/Button';
-import { TextField } from '@/components/TextField';
+import { DateField } from '@/components/DateField';
 import { Card, ErrorNote, SectionHeader, Splash } from '@/components/ui';
 import { listEngineRuns, runEngine, type EngineRun } from '@/features/admin/api';
 import { formatThaiDate, todayISO } from '@/lib/date';
@@ -78,14 +78,14 @@ export default function AdminEngineScreen() {
           ปกติ engine ทำงานเองทุกวันตี 1 (เวลาไทย) · กดปุ่มนี้เพื่อรันเดี๋ยวนี้
           กดซ้ำวันเดิมออเดอร์จะไม่ซ้ำ เพราะ idempotency มาจาก UNIQUE ที่ฐานข้อมูล
         </Text>
-        <TextField
+        <DateField
           id="admin-engine-date"
           label="วันที่จำลอง (เว้นว่าง = วันนี้)"
           value={runDate}
-          onChangeText={setRunDate}
+          onChange={setRunDate}
           placeholder={todayISO()}
-          maxLength={10}
-          hint="รูปแบบ YYYY-MM-DD — ใช้ได้เฉพาะเครื่องเดโม่ที่เปิด DEMO_MODE"
+          clearable
+          hint="ใช้ได้เฉพาะเครื่องเดโม่ที่เปิด DEMO_MODE — ย้อนหลังได้เพื่อเก็บรอบที่พลาด"
         />
         <Button id="admin-engine-run" label="รัน engine เดี๋ยวนี้" loading={busy} onPress={() => void run()} />
       </Card>

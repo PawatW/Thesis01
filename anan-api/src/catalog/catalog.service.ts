@@ -128,7 +128,13 @@ export class CatalogService {
 
   async listProducts(query: ListProductsQuery): Promise<ProductCardResponse[]> {
     const where: Prisma.ProductWhereInput = { ...VISIBLE_PRODUCT };
-    if (query.category != null) where.categoryId = query.category;
+    // `categories` (หลายหมวดจากหน้าแรก) มาก่อน `category` (หน้าหมวดเดี่ยว)
+    // ส่งมาทั้งคู่ = เจตนากำกวม เลือกอันที่กว้างกว่าเสมอ ไม่ AND ทับกันจนได้ผลว่าง
+    if (query.categories != null && query.categories.length > 0) {
+      where.categoryId = { in: query.categories };
+    } else if (query.category != null) {
+      where.categoryId = query.category;
+    }
     if (query.q) {
       // ★ ประกาศเป็น where.OR ตรง ๆ ได้อย่างปลอดภัย — Prisma AND ทุก top-level field
       // เข้ากับ OR เสมอ ดังนั้น isActive/suspendedAt/shop ที่ spread มาจาก

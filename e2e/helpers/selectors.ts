@@ -71,7 +71,11 @@ export const home = {
   featured: '#home-featured',
   subsEmpty: '#home-subs-empty',
   subsError: '#home-subs-error',
+  /** เช็คบ็อกซ์หมวด — ติ๊กได้หลายหมวด แล้วกรองการ์ดในหน้าแรกเลย (2026-08-30) */
   category: (categoryId: number) => `#home-category-${categoryId}`,
+  categoryClear: '#home-category-clear',
+  featuredCount: '#home-featured-count',
+  featuredEmpty: '#home-featured-empty',
   subscriptionRow: (subscriptionId: string) => `#home-sub-${subscriptionId}`,
   /**
    * การ์ดสินค้าถูกตั้ง id ตามหน้าจอที่ใช้ ไม่ใช่ตามรหัสสินค้าอย่างเดียว
@@ -169,6 +173,12 @@ export const checkout = {
 /** `anan/app/(buyer)/subscriptions.tsx` */
 export const subscriptions = {
   spend: '#subs-spend',
+  /**
+   * ปฏิทินการตัดเงินของเดือนนี้ — ไม่มีธาตุนี้เลยแปลว่าเดือนนี้ไม่มีรอบที่ต้องจ่าย
+   * (การ์ดสรุปนับเฉพาะรอบที่ตกในเดือนปฏิทินปัจจุบันจริง ๆ ไม่ใช่ค่าเฉลี่ยต่อเดือน)
+   */
+  schedule: '#subs-schedule',
+  scheduleRow: (id: string, date: string) => `#subs-schedule-row-${id}-${date}`,
   empty: '#subs-empty',
   error: '#subs-error',
   toast: '#subs-toast',
@@ -638,6 +648,16 @@ export const sellerCoupons = {
   min: '#seller-coupon-min',
   starts: '#seller-coupon-starts',
   ends: '#seller-coupon-ends',
+  /** ปฏิทินของ DateField (`anan/src/components/DateField.tsx`) — พิมพ์เองก็ยังได้ */
+  startsOpen: '#seller-coupon-starts-open',
+  endsOpen: '#seller-coupon-ends-open',
+  endsCalendar: '#seller-coupon-ends-calendar',
+  endsMonth: '#seller-coupon-ends-month',
+  endsPrevMonth: '#seller-coupon-ends-prev',
+  endsNextMonth: '#seller-coupon-ends-next',
+  /** วันในปฏิทิน — รับ `YYYY-MM-DD` */
+  endsDay: (iso: string) => `#seller-coupon-ends-day-${iso}`,
+  endsToday: '#seller-coupon-ends-today',
   quota: '#seller-coupon-quota',
   scope: (s: 'all' | 'some') => `#seller-coupon-scope-${s}`,
   product: (productId: string) => `#seller-coupon-product-${productId}`,
@@ -719,6 +739,16 @@ export const admin = {
   couponMin: '#admin-coupon-min',
   couponStarts: '#admin-coupon-starts',
   couponEnds: '#admin-coupon-ends',
+  /** ปฏิทินของ DateField (`anan/src/components/DateField.tsx`) — พิมพ์เองก็ยังได้ */
+  couponStartsOpen: '#admin-coupon-starts-open',
+  couponEndsOpen: '#admin-coupon-ends-open',
+  couponEndsCalendar: '#admin-coupon-ends-calendar',
+  couponEndsMonth: '#admin-coupon-ends-month',
+  couponEndsPrevMonth: '#admin-coupon-ends-prev',
+  couponEndsNextMonth: '#admin-coupon-ends-next',
+  /** วันในปฏิทิน — รับ `YYYY-MM-DD` */
+  couponEndsDay: (iso: string) => `#admin-coupon-ends-day-${iso}`,
+  couponEndsToday: '#admin-coupon-ends-today',
   couponQuota: '#admin-coupon-quota',
   couponCreate: '#admin-coupon-create',
   coupon: (id: string) => `#admin-coupon-${id}`,

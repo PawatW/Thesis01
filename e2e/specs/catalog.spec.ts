@@ -37,7 +37,7 @@ testCase(
 
 testCase(
   { id: 'TC-011', priority: 'P1', feature: FEATURE },
-  'กดหมวดสินค้าแล้วเห็นเฉพาะสินค้าในหมวดนั้น',
+  'ติ๊กหมวดเดียวแล้วกรองการ์ดในหน้าแรกเลย ไม่เด้งไปหน้าหมวด',
   async ({ page }) => {
     await test.step('Arrange — ล็อกอินแล้วเปิดหน้าแรก', async () => {
       await loginAs(page, 'buyer');
@@ -45,15 +45,50 @@ testCase(
       await expect(page.locator(ids.home.category(CATEGORIES.coffee.id))).toBeVisible();
     });
 
-    await test.step('Act — กดหมวด "กาแฟ"', async () => {
+    await test.step('Act — ติ๊กหมวด "กาแฟ"', async () => {
       await page.locator(ids.home.category(CATEGORIES.coffee.id)).click();
+      await expect(page.locator(ids.home.featuredCount)).toBeVisible();
     });
 
-    await test.step('Assert — เข้าหน้าหมวดและมีสินค้ากาแฟของ seed อยู่ในรายการ', async () => {
-      await expect(page.locator(ids.category.grid)).toBeVisible();
-      await expect(page.locator(ids.category.productCard(PRODUCTS.coffeeMedium.id))).toBeVisible();
-      // ทิชชู่อยู่หมวด "ของใช้ในบ้าน" — ต้องไม่โผล่ในหมวดกาแฟ
-      await expect(page.locator(ids.category.productCard(PRODUCTS.tissue.id))).toHaveCount(0);
+    await test.step('Assert — ยังอยู่หน้าแรก และเห็นเฉพาะสินค้ากาแฟ', async () => {
+      // ไม่มีการ navigate — หน้าหมวดต้องไม่ถูกเปิด
+      await expect(page.locator(ids.category.grid)).toHaveCount(0);
+      await expect(page.locator(ids.home.productCard(PRODUCTS.coffeeMedium.id))).toBeVisible();
+      // ทิชชู่อยู่หมวด "ของใช้ในบ้าน" — ต้องไม่โผล่ตอนติ๊กเฉพาะกาแฟ
+      await expect(page.locator(ids.home.productCard(PRODUCTS.tissue.id))).toHaveCount(0);
+    });
+  },
+);
+
+testCase(
+  { id: 'TC-126', priority: 'P1', feature: FEATURE },
+  'ติ๊กได้หลายหมวดพร้อมกัน — ผลลัพธ์เป็นยูเนียน และล้างตัวกรองกลับสภาพเดิม',
+  async ({ page }) => {
+    await test.step('Arrange — ล็อกอินแล้วติ๊กหมวด "กาแฟ"', async () => {
+      await loginAs(page, 'buyer');
+      await gotoApp(page, '/');
+      await page.locator(ids.home.category(CATEGORIES.coffee.id)).click();
+      await expect(page.locator(ids.home.productCard(PRODUCTS.coffeeMedium.id))).toBeVisible();
+      await expect(page.locator(ids.home.productCard(PRODUCTS.tissue.id))).toHaveCount(0);
+    });
+
+    await test.step('Act — ติ๊กหมวด "ของใช้ในบ้าน" เพิ่มอีกหมวด', async () => {
+      await page.locator(ids.home.category(CATEGORIES.household.id)).click();
+    });
+
+    await test.step('Assert — เห็นสินค้าของทั้งสองหมวดพร้อมกัน (ยูเนียน ไม่ใช่ AND)', async () => {
+      await expect(page.locator(ids.home.productCard(PRODUCTS.coffeeMedium.id))).toBeVisible();
+      await expect(page.locator(ids.home.productCard(PRODUCTS.tissue.id))).toBeVisible();
+      await expect(page.locator(ids.home.categoryClear)).toContainText('2');
+    });
+
+    await test.step('Assert — ล้างตัวกรองแล้วกลับไปแสดง "คนสมัครเยอะที่สุด"', async () => {
+      await page.locator(ids.home.categoryClear).click();
+      await expect(page.locator(ids.home.categoryClear)).toHaveCount(0);
+      await expect(page.locator(ids.home.featuredCount)).toHaveCount(0);
+      await expect(
+        page.locator(`${ids.home.featured} ${ids.home.anyProductCard}`).first(),
+      ).toBeVisible();
     });
   },
 );

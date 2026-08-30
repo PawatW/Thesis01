@@ -99,6 +99,33 @@ describe('Catalog — เปิดให้คนที่ยังไม่ล�
     expect((byCategory.body as Card[]).length).toBeLessThanOrEqual(5);
   });
 
+  it('categories=1,8 → ได้สินค้าของทั้งสองหมวด ไม่มีหมวดอื่นปน', async () => {
+    const res = await api(app)
+      .get('/api/v1/catalog/products?categories=1,8&limit=60')
+      .expect(200);
+    const rows = res.body as Card[];
+    expect(rows.length).toBeGreaterThan(0);
+
+    // เทียบกับผลของหมวดเดี่ยวสองครั้ง — ผลรวมต้องเป็นยูเนียนพอดี ไม่ขาดไม่เกิน
+    const one = await api(app)
+      .get('/api/v1/catalog/products?category=1&limit=60')
+      .expect(200);
+    const eight = await api(app)
+      .get('/api/v1/catalog/products?category=8&limit=60')
+      .expect(200);
+    const union = new Set([
+      ...(one.body as Card[]).map((p) => p.id),
+      ...(eight.body as Card[]).map((p) => p.id),
+    ]);
+    expect(new Set(rows.map((p) => p.id))).toEqual(union);
+    expect(rows.length).toBeGreaterThan((one.body as Card[]).length);
+  });
+
+  it('categories ที่ไม่ใช่จำนวนเต็มบวก → 400 (ไม่ไหลไป Prisma)', async () => {
+    await api(app).get('/api/v1/catalog/products?categories=1,abc').expect(400);
+    await api(app).get('/api/v1/catalog/products?categories=0').expect(400);
+  });
+
   it('limit เกินเพดาน → 400 (กันดูดทั้งตารางในคำขอเดียว)', async () => {
     await api(app).get('/api/v1/catalog/products?limit=5000').expect(400);
   });
