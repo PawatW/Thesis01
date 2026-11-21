@@ -166,6 +166,9 @@ export class EngineService {
 
   /** รัน 1 รอบแล้วบันทึกผล — `runDate` คือ "วันนี้" ในสายตาของ engine */
   async run(runDate: Date): Promise<EngineRunResponse> {
+    // ★ ต้องมาก่อน notifyUpcoming ★ รายการที่เปิดคืนวันนี้ (resume_on = วันนี้+3)
+    // จะได้แจ้งเตือน T-3 ตามปกติในรอบเดียวกัน
+    const autoResumed = await this.autoResume(runDate);
     const upcoming = await this.notifyUpcoming(runDate);
     const orders = await this.createDueOrders(runDate);
     const autoConfirmed = await this.autoCloseShippedOrders(runDate);
@@ -181,6 +184,7 @@ export class EngineService {
       autoConfirmed,
       paymentsFailed: orders.unpaid,
       failed: orders.failed,
+      autoResumed,
     };
 
     const row = await this.prisma.engineRun.create({
@@ -189,7 +193,11 @@ export class EngineService {
         ordersCreated: orders.created,
         // นับทุกใบที่ engine สร้าง: T-3 + แจ้งผู้ซื้อว่ามีออเดอร์ + สรุปให้ร้าน
         notificationsCreated:
-          upcoming + orders.created + shopsNotified + autoConfirmed,
+          upcoming +
+          orders.created +
+          shopsNotified +
+          autoConfirmed +
+          autoResumed,
         detail: { ...detail },
       },
     });
@@ -223,6 +231,102 @@ export class EngineService {
   }
 
   // ---------- งานย่อย ----------
+
+  /**
+   * งานที่ 0 — เปิดรายการที่ "หยุดพัก N รอบ" คืนเอง (Phase 8.3 · feature 06 R2)
+   *
+   * เปิดล่วงหน้า `NOTICE_DAYS` วันก่อน `resume_on` โดยตั้งใจ: ผู้ซื้อจะได้แจ้งเตือน
+   * T-3 แบบเดียวกับรอบปกติ และยังกดข้าม/หยุดต่อได้ก่อนถูกตัดเงิน · ถ้าเปิดตรงวัน
+   * ระบบจะตัดเงินทันทีโดยไม่มีใครเตือนเลย
+   *
+   * - `BILLABLE_PRODUCT` ด้วย: ร้านถูกระงับระหว่างพัก → ห้ามเปิดคืน ไม่งั้นได้รายการ
+   *   active บนร้านที่ถูกระงับ (ผิดกฎ "ระงับแล้วเงินหยุด" ของ Phase 6)
+   * - รอบแรกต้องไม่ย้อนหลัง: `max(resume_on, พรุ่งนี้)` — กรณีร้านเพิ่งปลดระงับหรือ
+   *   engine ไม่ได้รันหลายวัน (กฎเดียวกับปุ่ม "กลับมาใช้งาน")
+   * - เงื่อนไขทั้งหมดอยู่ใน where ของคำสั่งเขียน: ผู้ซื้อกดกลับมาเอง/ยกเลิกพร้อมกัน
+   *   ฝั่งนั้นชนะ ที่นี่ข้ามไปเงียบ ๆ
+   */
+  private async autoResume(runDate: Date): Promise<number> {
+    const horizon = addDays(runDate, NOTICE_DAYS);
+    const tomorrow = addDays(runDate, 1);
+    const rows = await this.prisma.subscription.findMany({
+      where: {
+        status: 'paused',
+        pausedReason: 'user',
+        resumeOn: { lte: horizon },
+        plan: { product: BILLABLE_PRODUCT },
+      },
+      select: {
+        id: true,
+        buyerId: true,
+        resumeOn: true,
+        cycleAnchorDate: true,
+        plan: { select: { product: { select: { name: true } } } },
+      },
+      take: 500,
+    });
+
+    let resumed = 0;
+    for (const sub of rows) {
+      const resumeOn = sub.resumeOn;
+      if (resumeOn === null) continue;
+      const next = resumeOn > tomorrow ? resumeOn : tomorrow;
+      /**
+       * ★ คงหมุดเดิมเมื่อกลับมาตรงวันบนกริด ★ `resume_on` คิดจากกริดของหมุดอยู่แล้ว
+       * (`skipFrom`) ถ้าย้ายหมุดไปที่วันนั้น รายการที่หมุดเป็นวันที่ 31 แล้ว resume_on
+       * ถูกหนีบเป็น 30 เม.ย. จะยุบเป็นวันที่ 30 ถาวร — ปัญหาเดียวกับที่หมุดมีไว้แก้
+       * ย้ายหมุดเฉพาะตอนถูกหนีบเป็นพรุ่งนี้ (ร้านเพิ่งปลดระงับ/engine ไม่ได้รัน)
+       * ซึ่งคือการนิยามตารางใหม่ — กฎเดียวกับปุ่ม "กลับมาใช้งาน"
+       */
+      const keepAnchor =
+        next.getTime() === resumeOn.getTime() &&
+        sub.cycleAnchorDate <= resumeOn;
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const updated = await tx.subscription.updateMany({
+            where: {
+              id: sub.id,
+              status: 'paused',
+              pausedReason: 'user',
+              resumeOn,
+            },
+            data: {
+              status: 'active',
+              pausedAt: null,
+              pausedReason: null,
+              resumeOn: null,
+              nextOrderDate: next,
+              cycleAnchorDate: keepAnchor ? sub.cycleAnchorDate : next,
+            },
+          });
+          if (updated.count === 0) return;
+
+          await tx.subscriptionEvent.create({
+            data: {
+              subscriptionId: sub.id,
+              event: 'resumed',
+              detail: { auto: true, next_order_date: toISODate(next) },
+            },
+          });
+          await tx.notification.create({
+            data: {
+              userId: sub.buyerId,
+              type: 'subscription_resumed',
+              title: 'ครบกำหนดหยุดพักแล้ว',
+              body: `${sub.plan.product.name} — กลับมาส่งรอบวันที่ ${toISODate(next)} · ยังข้ามรอบหรือหยุดต่อได้ก่อนถึงวัน`,
+              linkPath: `/subscriptions/${sub.id}`,
+            },
+          });
+          resumed++;
+        });
+      } catch (e) {
+        this.logger.error(
+          `เปิดรายการ ${sub.id} คืนอัตโนมัติไม่สำเร็จ: ${String(e)}`,
+        );
+      }
+    }
+    return resumed;
+  }
 
   /**
    * งานที่ 1 — แจ้งล่วงหน้า T-3 พร้อมบอกว่ากด skip ได้ถึงเมื่อไหร่
@@ -447,6 +551,7 @@ export class EngineService {
             cycleDate,
             status: 'pending',
             amount,
+            quantity: sub.quantity,
             // ★ ส่วนลดรวมของทั้งสองระดับ ★ กฎการหนีบเมื่อรวมเกินยอดอยู่ใน
             // `combineDiscounts()` — ที่นี่แค่บันทึกผลที่คิดมาแล้ว
             discountAmount: used.discount,
@@ -740,5 +845,6 @@ function toRunDetail(raw: Prisma.JsonValue | null): EngineRunDetail {
     autoConfirmed: num('autoConfirmed'),
     paymentsFailed: num('paymentsFailed'),
     failed: num('failed'),
+    autoResumed: num('autoResumed'),
   };
 }

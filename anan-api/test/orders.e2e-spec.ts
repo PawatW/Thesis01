@@ -612,6 +612,7 @@ describe('Phase 4.5 — ออเดอร์ ยืนยันรับขอ�
           cycleDate: addDays(todayInBangkok(), -30),
           status: 'delivered',
           amount: 150,
+          quantity: 1,
           addressSnapshot: { recipient_name: ADDRESS.recipientName },
         },
       });
@@ -679,6 +680,7 @@ describe('Phase 4.5 — ออเดอร์ ยืนยันรับขอ�
       await api(app)
         .post(`/api/v1/subscriptions/${subscriptionId}/cancel`)
         .set(bearer(buyer.accessToken))
+        .send({ reason: 'other' })
         .expect(201);
 
       const res = await api(app)

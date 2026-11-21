@@ -14,10 +14,26 @@ import { formatThaiDate, nextCycleAfter, todayISO } from '@/lib/date';
 
 export type Cycle = '2w' | '1m' | '2m';
 
+/** ตรงกับ enum `subscription_cancel_reason` ของ API (Phase 8.3) */
+export type CancelReason =
+  | 'too_expensive'
+  | 'too_much_stock'
+  | 'taking_break'
+  | 'quality'
+  | 'switching'
+  | 'other';
+
+/** action ที่กดจาก "ข้อเสนอแทนการยกเลิก" — API เก็บไว้วัด save rate */
+export type RetentionSource = 'cancel_flow';
+
 export type SubscriptionCard = {
   id: string;
   status: 'active' | 'paused' | 'cancelled';
   pausedReason: string | null;
+  /** หยุดพัก N รอบ — วันรอบแรกที่จะกลับมาส่ง · null = ไม่มีกำหนด/ไม่ได้หยุด */
+  resumeOn: string | null;
+  /** เหตุผลที่ยกเลิก — null ถ้ายังไม่ยกเลิก (หรือยกเลิกก่อนมีฟีเจอร์นี้) */
+  cancelReason: CancelReason | null;
   startDate: string;
   nextOrderDate: string | null;
   /** หมุดของกริดรอบ — ใช้คำนวณ preview ให้ตรงกับที่ API จะเขียนจริง */
@@ -143,16 +159,37 @@ async function action(
   }
 }
 
-export const skipCycle = (id: string): Promise<ActionResult> => action(id, 'skip');
-export const pause = (id: string): Promise<ActionResult> => action(id, 'pause');
+const withSource = (source?: RetentionSource): Record<string, unknown> =>
+  source === undefined ? {} : { source };
+
+export const skipCycle = (id: string, source?: RetentionSource): Promise<ActionResult> =>
+  action(id, 'skip', withSource(source));
+/** `cycles` ไม่ส่ง = หยุดไม่มีกำหนด · 1-3 = หยุดพักแล้วระบบเปิดคืนเอง */
+export const pause = (
+  id: string,
+  opts: { cycles?: 1 | 2 | 3; source?: RetentionSource } = {},
+): Promise<ActionResult> =>
+  action(id, 'pause', {
+    ...(opts.cycles === undefined ? {} : { cycles: opts.cycles }),
+    ...withSource(opts.source),
+  });
 export const resume = (id: string): Promise<ActionResult> => action(id, 'resume');
 export const reschedule = (id: string, date: string): Promise<ActionResult> =>
   action(id, 'reschedule', { date });
-export const changePlan = (id: string, planId: string): Promise<ActionResult> =>
-  action(id, 'plan', { planId });
+export const changePlan = (
+  id: string,
+  planId: string,
+  source?: RetentionSource,
+): Promise<ActionResult> => action(id, 'plan', { planId, ...withSource(source) });
 export const changeAddress = (id: string, addressId: string): Promise<ActionResult> =>
   action(id, 'address', { addressId });
-export const cancel = (id: string): Promise<ActionResult> => action(id, 'cancel');
+/** เหตุผลบังคับ (API ตอบ 400 ถ้าไม่ส่ง) · note ไม่ถูกส่งต่อให้ร้าน */
+export const cancel = (id: string, reason: CancelReason, note?: string): Promise<ActionResult> =>
+  action(id, 'cancel', { reason, ...(note != null && note.trim() !== '' ? { note: note.trim() } : {}) });
+export const changeQuantity = (id: string, quantity: number): Promise<ActionResult> =>
+  action(id, 'quantity', { quantity });
+/** ไม่ส่งยอดเงิน — API คิดจากราคาแผนใน DB เอง */
+export const shipNow = (id: string): Promise<ActionResult> => action(id, 'ship-now');
 
 /** หนึ่งรอบที่จะถูกตัดเงินจริงในเดือนปฏิทินนี้ */
 export type MonthCharge = {
@@ -239,6 +276,20 @@ export function skipTargetDate(item: SubscriptionCard): string | null {
   const today = todayISO();
   const after = item.nextOrderDate > today ? item.nextOrderDate : today;
   return nextCycleAfter(item.cycleAnchorDate, item.cycle, after);
+}
+
+/**
+ * วันที่จะกลับมาส่งถ้าหยุดพัก `n` รอบ — กติกาเดียวกับ `skipFrom()` ของ API
+ * (กด skip `n` ครั้งติดกัน) จึง "หยุด 1 รอบ" ได้วันเดียวกับ "ข้ามรอบ" เสมอ
+ */
+export function resumeDateAfter(item: SubscriptionCard, n: number): string | null {
+  if (item.nextOrderDate == null) return null;
+  const today = todayISO();
+  let d = item.nextOrderDate;
+  for (let i = 0; i < n; i++) {
+    d = nextCycleAfter(item.cycleAnchorDate, item.cycle, d > today ? d : today);
+  }
+  return d;
 }
 
 /** ข้อความที่ต้องบอกผู้ใช้ **ก่อน** กดยืนยัน (W05) */

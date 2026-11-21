@@ -24,6 +24,8 @@ const SELLER_TYPES = [
   NotificationType.new_subscriber,
   NotificationType.subscriber_cancelled,
   NotificationType.engine_summary,
+  // Phase 8.3 — ผู้ซื้อกด "ส่งรอบนี้เลย" ร้านต้องรู้เพื่อจัดของ
+  NotificationType.early_order,
 ] as const;
 
 /** where ของชนิดตามคอนโซลที่ถาม — `all` = ไม่กรอง (ค่าเริ่มต้นเดิม) */

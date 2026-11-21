@@ -22,6 +22,9 @@ const PLAN_2M = '30000000-0000-4000-8000-000000000003';
 /** แผนของ "สินค้าคนละชิ้น" — เปลี่ยนรอบข้ามสินค้าต้องไม่ได้ */
 const PLAN_OTHER_PRODUCT = '30000000-0000-4000-8000-000000000018';
 
+/** เหตุผลบังคับตั้งแต่ Phase 8.3 — เคสเดิมไม่ได้ทดสอบเหตุผล ใช้ค่ากลาง ๆ */
+const CANCEL = { reason: 'other' };
+
 const ADDRESS = {
   recipientName: 'ผู้รับ จัดการรายการ',
   phone: '0812345678',
@@ -341,7 +344,7 @@ describe('Subscriptions — 7 actions ของ W05', () => {
 
     it('เลื่อนรายการที่ยกเลิกไปแล้ว → 409', async () => {
       const sub = await newSubscription();
-      await act(sub.id, 'cancel').expect(201);
+      await act(sub.id, 'cancel').send(CANCEL).expect(201);
 
       const res = await act(sub.id, 'reschedule')
         .send({ date: target(5) })
@@ -471,7 +474,7 @@ describe('Subscriptions — 7 actions ของ W05', () => {
       const sub = await newSubscription();
       const noticesBefore = await cancelNoticesForShop();
 
-      const res = await act(sub.id, 'cancel').expect(201);
+      const res = await act(sub.id, 'cancel').send(CANCEL).expect(201);
       const card = res.body as Card;
       expect(card.status).toBe('cancelled');
       expect(card.nextOrderDate).toBeNull();
@@ -493,15 +496,15 @@ describe('Subscriptions — 7 actions ของ W05', () => {
 
     it('ยกเลิกซ้ำ → 409 (cancelled คือถาวร)', async () => {
       const sub = await newSubscription();
-      await act(sub.id, 'cancel').expect(201);
+      await act(sub.id, 'cancel').send(CANCEL).expect(201);
 
-      const res = await act(sub.id, 'cancel').expect(409);
+      const res = await act(sub.id, 'cancel').send(CANCEL).expect(409);
       expect((res.body as ApiError).code).toBe('SUBSCRIPTION_CANCELLED');
     });
 
     it('★ ยกเลิกแล้วทุก action ถูกปฏิเสธหมด (state machine ของ W05)', async () => {
       const sub = await newSubscription();
-      await act(sub.id, 'cancel').expect(201);
+      await act(sub.id, 'cancel').send(CANCEL).expect(201);
 
       // ครบทั้ง 6 action ที่เหลือ ไม่ใช่แค่ 3 ตัวแรก — endpoint ที่รับ body
       // มีเส้นทางตรวจของตัวเองแยก จึงต้องพิสูจน์ว่ามันก็เจอด่านสถานะเหมือนกัน
@@ -525,7 +528,7 @@ describe('Subscriptions — 7 actions ของ W05', () => {
 
     it('ยกเลิกรายการของคนอื่น → 404', async () => {
       const sub = await newSubscription();
-      await act(sub.id, 'cancel', other).expect(404);
+      await act(sub.id, 'cancel', other).send(CANCEL).expect(404);
     });
   });
 

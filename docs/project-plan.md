@@ -234,6 +234,16 @@
   - [x] Test: L2 `catalog.e2e-spec.ts` 22 เคส (รวม regression guard: ระงับร้าน/ปิดร้านเอง + ค้นด้วยชื่อร้าน → สินค้าต้องไม่หลุดทาง `where.OR`) · Playwright TC-121 (P0) / TC-122 (P2) / TC-123 (P1) — **วัดจริง 2026-08-30: unit 83 · L2+L3 402 · L4 123 เขียวทั้งหมด** ดู [testing.md §5](testing.md)
   - [x] ไม่ทำรอบนี้ (ตามสเปก) — filter sidebar (ช่วงราคา/ส่งจาก), คูปองร้านบนหน้าร้าน, ปุ่มติดตาม/พูดคุย, index `pg_trgm` สำหรับ ILIKE (ข้อมูลระดับ demo ยังไม่จำเป็น)
   - [x] ไล่ [security-rules.md](security-rules.md) ก่อนปิดงาน (endpoint ใหม่ที่เป็น public)
+- [x] **Phase 8.3 — Retention: ยกเลิกพร้อมเหตุผล · หยุดพัก N รอบ · ส่งรอบนี้เลย · เปลี่ยนจำนวน** _(ผู้ใช้สั่งให้เพิ่ม 2026-11-21 · **เสร็จ 2026-11-21**)_
+  - สเปก: [feature 06 หัวข้อ Retention](../context/planing/06-my-subscriptions.md) + [W05](../context/workflows/w05-manage-subscription.md) — "Win-back offer" เดิมอยู่ใน Out of scope ของ 06
+  - **ทำไม** — ผล research ระบบ subscription จริง (Recurly/Skio/Paddle/Amazon Subscribe & Save) มี 3 อย่างที่ทุกเจ้ามีตรงกันแต่เรายังไม่มี: cancel flow ที่ถามเหตุผลแล้วเสนอทางเลือกตามเหตุผล · หยุดพักแบบมีวันกลับ · ส่งก่อนกำหนด/เปลี่ยนจำนวน · และทำให้เล่มวัดได้ว่าระบบ "ลด churn" อย่างไร (save rate จาก `subscription_events.detail.source`)
+  - [x] DB: migration `retention_cancel_reason_pause_until` (enum `subscription_cancel_reason` · `cancel_reason`/`cancel_note`/`resume_on` + CHECK 4 ตัว) · migration `order_quantity_snapshot` — **`orders.quantity` NOT NULL + CHECK + trigger ห้ามแก้** (พบจากรีวิว: ไม่มีคอลัมน์นี้ = จ่าย 1 ชิ้นแล้วแก้เป็น 10 ก่อนร้านแพ็คของได้)
+  - [x] API: `POST /:id/cancel` บังคับ `reason` · `POST /:id/pause { cycles? }` · `POST /:id/ship-now` (ไม่มี body · rollback 402 · กดซ้ำ 409) · `POST /:id/quantity` · engine งานที่ 0 `autoResume` (เปิดล่วงหน้า 3 วันให้ได้ T-3 · คงหมุดบนกริด · กรอง `BILLABLE_PRODUCT`) · แจ้งเตือนร้าน `early_order`
+  - [x] UI: `RetentionSheets.tsx` — กล่องยกเลิก (เหตุผล 6 ข้อ + ข้อเสนอตามเหตุผล · ปุ่มยืนยันอยู่หน้าเดียวกันเสมอ) · กล่องหยุดพัก 1/2/3 รอบ/ไม่กำหนด พร้อมวันกลับ · กล่องจำนวน · ปุ่ม "ส่งรอบนี้เลย" ผ่านกล่องยืนยันเดิม + ป้าย DEMO
+  - [x] Test: L2 `retention.e2e-spec.ts` 28 เคส + engine 6 + L3 6 + coupon 1 · Playwright TC-128…131 + ปรับ TC-043/048/052 · **วัดจริง 2026-11-21: unit 83 · L2+L3 445 · L4 131 (130 ผ่าน — TC-081 ค้างจากรอบหน้าแรก)** ดู [testing.md §5](testing.md)
+  - [x] รีวิวขนาน 2 agent (security + correctness) → แก้ 7 ข้อ: `orders.quantity` · หมุดของ autoResume · deadlock → 409 · ป้าย DEMO ในข้อเสนอ · `useRef` กันกดซ้ำ · teardown ของ engine test คืนสถานะ seed ครบ · assertion ของ TC-128/129/131 ให้ตรงเป๊ะ
+  - [x] เดินจริงบนเว็บ: ยกเลิก→รับข้อเสนอเปลี่ยนรอบ · ส่งรอบนี้เลย (ครั้งที่ 2 ได้ "วันนี้มีออเดอร์แล้ว") · เปลี่ยนจำนวน · หยุด 2 รอบ (วันกลับหนีบปลาย ก.พ. ตรงกับ server) · กล่องยกเลิกบนจอ 375px
+  - [ ] ยังไม่ทำ (ตามสเปก): หน้ารายงานเหตุผลการยกเลิก/save rate ฝั่งร้าน-แอดมิน · ข้อเสนอส่วนลดที่ระบบออกเอง · ส่งรอบนี้ให้คนอื่น (gift)
 
 ## สถานะการ deploy (ณ 2026-08-19)
 

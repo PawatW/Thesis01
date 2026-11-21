@@ -77,5 +77,7 @@ export function notificationIcon(type: string): ComponentProps<typeof Ionicons>[
   if (type === 'subscription_resumed') return 'play-outline';
   if (type === 'new_subscriber') return 'person-add-outline';
   if (type === 'subscriber_cancelled') return 'person-remove-outline';
+  // Phase 8.3 — ผู้ซื้อกด "ส่งรอบนี้เลย"
+  if (type === 'early_order') return 'flash-outline';
   return 'notifications-outline';
 }

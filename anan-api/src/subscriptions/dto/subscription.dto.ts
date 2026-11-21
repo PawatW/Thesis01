@@ -1,9 +1,11 @@
-import type { SubscriptionStatus } from '@prisma/client';
+import { CancelReason, type SubscriptionStatus } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayUnique,
   IsArray,
+  IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -71,10 +73,71 @@ export class RescheduleDto {
   date!: string;
 }
 
+/**
+ * ★ ป้ายวัดผลของ cancel flow ★ (Phase 8.3 · feature 06 R1)
+ *
+ * action ที่ผู้ซื้อกดจาก "ข้อเสนอแทนการยกเลิก" แนบค่านี้มา แล้วถูกเก็บลง
+ * `subscription_events.detail.source` — ใช้นับ save rate ในเล่ม
+ * เป็นข้อมูลวิเคราะห์ล้วน ไม่มีผลกับสิทธิ์หรือยอดเงินใด ๆ จึงรับจาก client ได้
+ */
+export const RETENTION_SOURCES = ['cancel_flow'] as const;
+export type RetentionSource = (typeof RETENTION_SOURCES)[number];
+
+/** body ของ skip — ไม่บังคับมี body (ของเดิมยิงเปล่าได้เหมือนเดิม) */
+export class SkipDto {
+  @IsOptional()
+  @IsIn(RETENTION_SOURCES)
+  source?: RetentionSource;
+}
+
+/** หยุดพัก — ไม่ส่ง `cycles` = หยุดไม่มีกำหนด (พฤติกรรมเดิม) */
+export class PauseDto {
+  @IsOptional()
+  @IsInt()
+  @IsIn([1, 2, 3], { message: 'หยุดพักได้ 1-3 รอบ' })
+  cycles?: 1 | 2 | 3;
+
+  @IsOptional()
+  @IsIn(RETENTION_SOURCES)
+  source?: RetentionSource;
+}
+
 /** เปลี่ยนรอบส่ง — เลือกได้เฉพาะแผนของสินค้าชิ้นเดิม (ตรวจที่ service) */
 export class ChangePlanDto {
   @IsUUID()
   planId!: string;
+
+  @IsOptional()
+  @IsIn(RETENTION_SOURCES)
+  source?: RetentionSource;
+}
+
+/** เปลี่ยนจำนวนต่อรอบ — ช่วงเดียวกับตอนสมัคร (CHECK `subs_quantity_range` ที่ DB) */
+export class ChangeQuantityDto {
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  quantity!: number;
+}
+
+/**
+ * ยกเลิก — **เหตุผลบังคับ** (Phase 8.3)
+ *
+ * ไม่มีเหตุผลก็ไม่มีวันรู้ว่าลูกค้าออกเพราะอะไร · CHECK ที่ DB บังคับฝั่งกลับ
+ * (มีเหตุผลได้เฉพาะตอน cancelled) ส่วนฝั่ง "ต้องมี" อยู่ที่นี่ เพราะแถวเก่าที่
+ * ยกเลิกก่อนมีฟีเจอร์นี้ไม่มีเหตุผล จะใส่ NOT NULL ย้อนหลังไม่ได้
+ */
+export class CancelSubscriptionDto {
+  @IsEnum(CancelReason, { message: 'กรุณาเลือกเหตุผลที่ยกเลิก' })
+  reason!: CancelReason;
+
+  @IsOptional()
+  @Transform(({ value }): unknown =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @Length(0, 200)
+  note?: string;
 }
 
 export class ChangeAddressDto {
@@ -86,6 +149,10 @@ export interface SubscriptionCardResponse {
   id: string;
   status: SubscriptionStatus;
   pausedReason: string | null;
+  /** หยุดพักแบบมีวันกลับ — วันรอบแรกที่จะกลับมาส่ง · null = ไม่มีกำหนด/ไม่ได้หยุด */
+  resumeOn: string | null;
+  /** เหตุผลที่ยกเลิก (ของผู้เรียกเอง) — null สำหรับรายการที่ยังไม่ยกเลิก/ยกเลิกก่อน 8.3 */
+  cancelReason: CancelReason | null;
   startDate: string;
   nextOrderDate: string | null;
   /**

@@ -46,6 +46,10 @@ active ──[admin ระงับร้าน]──▶ paused (paused_reason 
 | **เปลี่ยนรอบส่ง** | active | หา plan ของ product เดียวกันใน cycle ใหม่ที่ active → `plan_id = ใหม่` + event `cycle_changed` — next_order_date เดิมคงไว้ | รอบหน้าวันเดิม แต่ราคา/ความถี่ใหม่หลังจากนั้น |
 | **เปลี่ยนที่อยู่** | active, paused | `address_id = ใหม่` + event `address_changed` | ออเดอร์ใหม่ใช้ที่อยู่ใหม่ — ออเดอร์เก่าไม่กระทบ (มี snapshot) |
 | **Cancel** | active, paused | `status = cancelled`, `cancelled_at = now`, `next_order_date = null` + event `cancelled` | ไม่มีรอบอีก — ออเดอร์ที่ค้างส่งอยู่ยังส่งจนจบ |
+| **หยุดพัก N รอบ** _(8.3)_ | active | เหมือน Pause + `resume_on` = วันรอบหลังข้าม N รอบ + event `paused` (detail: `{cycles, resume_on}`) | engine เปิดคืนเองเมื่อ `resume_on − 3 วัน ≤ วันที่รัน` → `next_order_date = max(resume_on, พรุ่งนี้)` + event `resumed` (`auto: true`) + แจ้งผู้ซื้อ |
+| **ส่งรอบนี้เลย** _(8.3)_ | active | สร้างออเดอร์ + ตัดเงินจำลอง `cycle_date = วันนี้` · `cycle_anchor_date = วันนี้` · `next_order_date = วันนี้ + 1 รอบ` + event `ordered_early` | รอบต่อไปนับจากวันนี้ |
+| **เปลี่ยนจำนวน** _(8.3)_ | active, paused | `quantity = ใหม่` + event `quantity_changed` | ออเดอร์ถัดไปใช้จำนวนใหม่ |
+| **Cancel พร้อมเหตุผล** _(8.3)_ | active, paused | เหมือน Cancel + `cancel_reason` (บังคับ) + `cancel_note` · หน้าจอเสนอทางเลือกตามเหตุผลก่อน | — |
 | **ใช้คูปองกับรอบถัดไป** _(Phase 8 — [W13](w13-coupon.md))_ | active **และ** ยังไม่ถึงวัน `next_order_date` | insert `coupon_redemptions` (`reserved`, `cycle_date = next_order_date`) + `coupons.in_use_count` +1 + event `coupon_applied` | รอบนั้นถูกตัดเงินที่ยอดหลังลด — รอบอื่นไม่กระทบ |
 
 ## Main Flow ตัวอย่าง: Skip

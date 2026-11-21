@@ -394,7 +394,8 @@ function toBuyerOrder(row: OrderRow): BuyerOrderResponse {
             discountAmount: row.shopRedemption.discountAmount.toNumber(),
           },
     ].filter((c) => c !== null),
-    quantity: row.subscription.quantity,
+    // จำนวนของรอบนี้จริง ไม่ใช่ค่าปัจจุบันของ subscription (Phase 8.3)
+    quantity: row.quantity,
     trackingNote: row.trackingNote,
     confirmedAt:
       row.confirmedAt === null ? null : row.confirmedAt.toISOString(),

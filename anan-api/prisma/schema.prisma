@@ -57,8 +57,27 @@ enum SubscriptionEventType {
   price_changed
   coupon_applied
   coupon_released
+  /// Phase 8.3 — เปลี่ยนจำนวนต่อรอบ
+  quantity_changed
+  /// Phase 8.3 — "ส่งรอบนี้เลย" (สร้างออเดอร์ก่อนกำหนด)
+  ordered_early
 
   @@map("subscription_event_type")
+}
+
+/// เหตุผลที่ผู้ซื้อยกเลิก (Phase 8.3 · feature 06 R1)
+///
+/// เป็น enum ไม่ใช่ข้อความอิสระ เพราะต้องนับรวมได้ — นี่คือข้อมูลดิบของ
+/// "ทำไมลูกค้าถึง churn" ในเล่ม · ข้อความอิสระเก็บแยกที่ `cancel_note`
+enum CancelReason {
+  too_expensive
+  too_much_stock
+  taking_break
+  quality
+  switching
+  other
+
+  @@map("subscription_cancel_reason")
 }
 
 /// ระดับของคูปอง — ตัวที่บอกว่า "ใครเป็นคนออก" และ "ซ้อนกับใบไหนได้"
@@ -241,6 +260,8 @@ enum NotificationType {
   subscriber_cancelled
   engine_summary
   coupon_released
+  /// Phase 8.3 — ผู้ซื้อกด "ส่งรอบนี้เลย" (ฝั่งร้าน)
+  early_order
 
   @@map("notification_type")
 }
@@ -489,7 +510,14 @@ model Subscription {
   /// null เมื่อ cancelled — บังคับด้วย CHECK subs_state_consistent
   nextOrderDate   DateTime?          @map("next_order_date") @db.Date
   pausedAt        DateTime?          @map("paused_at") @db.Timestamptz(6)
+  /// หยุดพักแบบมีวันกลับ (Phase 8.3) — วันรอบแรกที่จะกลับมาส่ง
+  /// engine เปิดรายการคืนให้ล่วงหน้า 3 วัน · CHECK: มีได้เฉพาะ paused/user
+  resumeOn        DateTime?          @map("resume_on") @db.Date
   cancelledAt     DateTime?          @map("cancelled_at") @db.Timestamptz(6)
+  /// CHECK: มีได้เฉพาะตอน cancelled · แถวที่ยกเลิกก่อน Phase 8.3 เป็น null (ไม่ระบุ)
+  cancelReason    CancelReason?      @map("cancel_reason")
+  /// ข้อความเพิ่มเติม ≤200 — **ไม่ส่งให้ร้าน** (ข้อความอิสระอาจมีข้อมูลส่วนตัว)
+  cancelNote      String?            @map("cancel_note")
   createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
 
   buyer             User                @relation(fields: [buyerId], references: [id], onDelete: Cascade)
@@ -541,6 +569,10 @@ model Order {
   /// ส่วนลดจากคูปองของรอบนี้ (feature 18) — ยอดก่อนลด = amount + discountAmount
   /// แยกคอลัมน์แทนการเปลี่ยนความหมายของ `amount` ทำให้ท้ายน้ำทั้งหมดไม่ต้องแก้เลย
   discountAmount       Decimal     @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  /// ★ จำนวนชิ้นที่จ่ายเงินไปในรอบนี้ ★ (Phase 8.3) — ร้านจัดของตามค่านี้ ไม่ใช่ตาม
+  /// `subscriptions.quantity` ที่ผู้ซื้อแก้ได้ตลอด (ไม่งั้นจ่าย 1 แล้วแก้เป็น 10 ก่อนร้าน
+  /// แพ็คของ = ได้ของ 10 ชิ้น) · trigger `guard_order_update` ห้ามแก้หลังสร้าง
+  quantity             Int
   /// ใบจองคูปองที่ถูกใช้กับรอบนี้ — **แยกช่องตามระดับ** เพราะซ้อนได้ 2 ใบ
   /// CHECK `orders_discount_needs_redemption` บังคับว่ามีส่วนลดเมื่อไหร่
   /// ต้องชี้กลับไปได้เสมอว่ามาจากคูปองใบไหน (อย่างน้อยหนึ่งช่อง)

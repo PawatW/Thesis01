@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type SubscriptionStatus } from '@prisma/client';
+import {
+  Prisma,
+  type CancelReason,
+  type SubscriptionStatus,
+} from '@prisma/client';
 import {
   addCycle,
   addDays,
@@ -14,7 +18,7 @@ import {
 import { AppError } from '../common/errors/app-exception';
 import { SELLER_ORDERS_LINK } from '../common/links';
 import { PaymentProvider } from '../payments/payment.provider';
-import { VISIBLE_PRODUCT } from '../catalog/catalog.service';
+import { BILLABLE_PRODUCT, VISIBLE_PRODUCT } from '../catalog/catalog.service';
 import {
   CouponsService,
   uniqueTargetOf,
@@ -28,8 +32,11 @@ import {
 } from '../coupons/discount';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
+  CancelSubscriptionDto,
   CheckoutResultResponse,
   CreateSubscriptionDto,
+  PauseDto,
+  RetentionSource,
   ReviewResponse,
   SubscriptionCardResponse,
   UpsertReviewDto,
@@ -266,6 +273,7 @@ export class SubscriptionsService {
             cycleDate: startDate,
             status: 'pending',
             amount,
+            quantity: dto.quantity,
             discountAmount: used.discount,
             platformRedemptionId: used.platform?.redemptionId ?? null,
             shopRedemptionId: used.shop?.redemptionId ?? null,
@@ -382,37 +390,68 @@ export class SubscriptionsService {
   // ==========================================================
 
   /** ข้ามรอบถัดไป — ขยับไป 1 ช่องบนกริดเดิม (หมุดไม่ขยับ) */
-  async skip(buyerId: string, id: string): Promise<SubscriptionCardResponse> {
+  async skip(
+    buyerId: string,
+    id: string,
+    source?: RetentionSource,
+  ): Promise<SubscriptionCardResponse> {
     const sub = await this.loadForAction(buyerId, id, ['active']);
     const from = this.requireNextOrderDate(sub);
-
-    // หนีบกับวันนี้ด้วยเหตุผลเดียวกับ resume: ถ้ารายการค้างมาจากตอนที่ engine
-    // ไม่ได้รัน (`nextOrderDate` อยู่ในอดีต) การขยับ 1 ช่องอาจยังได้วันที่ผ่านมาแล้ว
-    // → engine ก็ยังตัดเงินรอบนั้นอยู่ดี ทั้งที่ผู้ใช้เพิ่งกด "ข้ามรอบ"
-    const after = from > todayInBangkok() ? from : todayInBangkok();
-    const to = nextCycleAfter(sub.cycleAnchorDate, this.cycleOf(sub), after);
+    const to = skipFrom(sub.cycleAnchorDate, this.cycleOf(sub), from, 1);
 
     return this.commit(sub, {
       guard: { nextOrderDate: from },
       data: { nextOrderDate: to },
       event: 'skipped',
-      detail: { from: toISODate(from), to: toISODate(to) },
+      detail: { from: toISODate(from), to: toISODate(to), ...sourceOf(source) },
     });
   }
 
-  /** หยุดชั่วคราว — engine ข้ามรายการนี้จนกว่าจะกลับมาใช้งาน */
-  async pause(buyerId: string, id: string): Promise<SubscriptionCardResponse> {
+  /**
+   * หยุดชั่วคราว — engine ข้ามรายการนี้จนกว่าจะกลับมาใช้งาน
+   *
+   * `cycles` (Phase 8.3) = หยุดพัก N รอบแล้วกลับมาเอง · `resume_on` คิดด้วย
+   * กติกาเดียวกับการกด skip N ครั้ง จึงตกบนกริดเดิมของหมุดเสมอ
+   * engine เป็นคนเปิดคืน (`EngineService.autoResume`) ไม่ใช่ที่นี่
+   */
+  async pause(
+    buyerId: string,
+    id: string,
+    dto: PauseDto = {},
+  ): Promise<SubscriptionCardResponse> {
     const sub = await this.loadForAction(buyerId, id, ['active']);
 
+    let resumeOn: Date | null = null;
+    if (dto.cycles !== undefined) {
+      const from = this.requireNextOrderDate(sub);
+      resumeOn = skipFrom(
+        sub.cycleAnchorDate,
+        this.cycleOf(sub),
+        from,
+        dto.cycles,
+      );
+    }
+
     return this.commit(sub, {
+      // วันรอบอยู่ใน guard เมื่อคำนวณ resume_on จากมัน — engine เลื่อนรอบไป
+      // ระหว่างกดปุ่มแล้ว วันกลับมาที่คิดไว้จะผิดไปหนึ่งรอบ
+      guard:
+        resumeOn === null ? undefined : { nextOrderDate: sub.nextOrderDate },
       data: {
         status: 'paused',
         pausedAt: new Date(),
         // 'user' เท่านั้น — 'shop_suspended' เป็นของ admin (ผู้ซื้อตั้งเองไม่ได้)
         pausedReason: 'user',
+        resumeOn,
       },
       event: 'paused',
-      detail: { reason: 'user' },
+      detail: {
+        reason: 'user',
+        ...(resumeOn === null
+          ? {}
+          : { cycles: dto.cycles, resume_on: toISODate(resumeOn) }),
+        ...sourceOf(dto.source),
+      },
     });
   }
 
@@ -448,6 +487,8 @@ export class SubscriptionsService {
         status: 'active',
         pausedAt: null,
         pausedReason: null,
+        // กลับมาก่อนกำหนดก็ได้ — วันกลับที่ตั้งไว้หมดความหมายทันที (CHECK ก็บังคับ)
+        resumeOn: null,
         nextOrderDate: next,
         cycleAnchorDate: keepCurrent ? sub.cycleAnchorDate : next,
       },
@@ -493,6 +534,7 @@ export class SubscriptionsService {
     buyerId: string,
     id: string,
     planId: string,
+    source?: RetentionSource,
   ): Promise<SubscriptionCardResponse> {
     const sub = await this.loadForAction(buyerId, id, ['active']);
     if (sub.planId === planId) return toCard(sub);
@@ -530,6 +572,145 @@ export class SubscriptionsService {
         from_cycle: sub.plan.cycle,
         to_cycle: plan.cycle,
         price_per_cycle: plan.pricePerCycle.toNumber(),
+        ...sourceOf(source),
+      },
+    });
+  }
+
+  /**
+   * เปลี่ยนจำนวนต่อรอบ (Phase 8.3) — มีผลกับออเดอร์ถัดไป
+   *
+   * ไม่แตะวันรอบ จึงไม่คืนคูปอง (ข้อยกเว้นเดียวกับเปลี่ยนที่อยู่) · ส่วนลดของใบที่
+   * จองไว้คิดสดตอนตัดเงินอยู่แล้ว ถ้าจำนวนใหม่ทำให้ยอดไม่ถึงขั้นต่ำ engine คืน
+   * คูปองให้พร้อมแจ้งเตือนเอง (`consumeForCycle` · feature 18)
+   */
+  async changeQuantity(
+    buyerId: string,
+    id: string,
+    quantity: number,
+  ): Promise<SubscriptionCardResponse> {
+    const sub = await this.loadForAction(buyerId, id, ['active', 'paused']);
+    if (sub.quantity === quantity) return toCard(sub);
+
+    return this.commit(sub, {
+      guard: { quantity: sub.quantity },
+      data: { quantity },
+      event: 'quantity_changed',
+      detail: { from: sub.quantity, to: quantity },
+      keepCoupons: true,
+    });
+  }
+
+  /**
+   * ส่งรอบนี้เลย (Phase 8.3) — ของหมดก่อนรอบ ไม่ต้องรอ
+   *
+   * สร้างออเดอร์ `cycle_date = วันนี้` + ตัดเงินจำลองทันที แล้ว **ย้ายหมุดมาที่วันนี้**
+   * รอบถัดไปจึงเป็นวันนี้ + 1 รอบ (ไม่ใช่รอบเดิมบนกริดเก่า — ไม่งั้นได้ของสองชุดติดกัน)
+   *
+   * ★ ด่านกันกดซ้ำคือ `UNIQUE(subscription_id, cycle_date)` ตัวเดียวกับ engine ★
+   * กดรัว / engine สร้างรอบวันนี้ไปแล้ว → ชน unique → 409 แทนที่จะได้สองออเดอร์
+   *
+   * จ่ายไม่ผ่าน → rollback ทั้งก้อน (402) แบบ checkout ไม่ใช่แบบ engine:
+   * ผู้ใช้กดเองอยู่ตรงหน้า บอกผลทันทีได้ ไม่มีเหตุให้ทิ้งออเดอร์ค้างจ่ายไว้
+   */
+  async shipNow(
+    buyerId: string,
+    id: string,
+  ): Promise<SubscriptionCardResponse> {
+    const sub = await this.loadForAction(buyerId, id, ['active']);
+    const from = this.requireNextOrderDate(sub);
+    const cycle = this.cycleOf(sub);
+
+    // ร้าน/สินค้าที่แอดมินระงับห้ามเก็บเงิน — นิยามเดียวกับ engine (`BILLABLE_PRODUCT`)
+    // ปกติรายการพวกนี้ถูกแช่แข็งเป็น paused ไปแล้ว ตรงนี้คือด่านชั้นที่สอง
+    const billable = await this.prisma.product.count({
+      where: { id: sub.plan.product.id, ...BILLABLE_PRODUCT },
+    });
+    if (billable === 0) {
+      throw AppError.conflict(
+        'SHOP_SUSPENDED',
+        'ร้านนี้ถูกระงับชั่วคราว — สั่งก่อนกำหนดไม่ได้',
+      );
+    }
+
+    const today = todayInBangkok();
+    const next = addCycle(today, cycle);
+    const amount = grossAmount(sub.plan.pricePerCycle, sub.quantity);
+
+    return this.commit(sub, {
+      // ที่อยู่/บัตรอยู่ใน guard ด้วย: อ่านมันในทรานแซกชันด้านล่าง ถ้ามีคนเปลี่ยน
+      // ที่อยู่ระหว่างทาง ออเดอร์ต้องไม่ถูกส่งไปที่อยู่เก่าเงียบ ๆ
+      guard: {
+        nextOrderDate: from,
+        addressId: sub.addressId,
+        paymentMethodId: sub.paymentMethodId,
+        // ยอดคิดจากจำนวน/แผนที่อ่านมานอกทรานแซกชัน — มีคนเปลี่ยนแทรกกลางทาง
+        // ต้องได้ 409 ไม่ใช่ออเดอร์ที่ยอดไม่ตรงกับจำนวน (รีวิว security Phase 8.3)
+        quantity: sub.quantity,
+        planId: sub.planId,
+      },
+      data: { nextOrderDate: next, cycleAnchorDate: today },
+      event: 'ordered_early',
+      detail: {
+        from: toISODate(from),
+        cycle_date: toISODate(today),
+        next_order_date: toISODate(next),
+      },
+      effects: async (tx) => {
+        const [address, card] = await Promise.all([
+          tx.address.findUniqueOrThrow({ where: { id: sub.addressId } }),
+          tx.paymentMethod.findUniqueOrThrow({
+            where: { id: sub.paymentMethodId },
+            select: { id: true, last4: true },
+          }),
+        ]);
+        const order = await tx.order.create({
+          data: {
+            subscriptionId: sub.id,
+            buyerId,
+            cycleDate: today,
+            status: 'pending',
+            amount,
+            quantity: sub.quantity,
+            addressSnapshot: {
+              recipient_name: address.recipientName,
+              phone: address.phone,
+              address_line: address.addressLine,
+              province: address.province,
+              postcode: address.postcode,
+            },
+          },
+        });
+
+        const charge = await this.payments.charge({
+          orderId: order.id,
+          amount: amount.toNumber(),
+          card,
+        });
+        if (charge.status === 'failed') {
+          throw AppError.paymentRequired(
+            'PAYMENT_FAILED',
+            charge.failureReason ?? 'ตัดเงินไม่สำเร็จ',
+          );
+        }
+        await tx.payment.create({
+          data: {
+            orderId: order.id,
+            amount,
+            status: 'paid',
+            paidAt: new Date(),
+          },
+        });
+
+        await tx.notification.create({
+          data: {
+            userId: sub.plan.product.shop.ownerId,
+            type: 'early_order',
+            title: 'มีผู้สั่งรอบส่งก่อนกำหนด',
+            body: `${sub.plan.product.name} — ${sub.quantity} ชิ้น · จัดส่งรอบนี้ได้เลย`,
+            linkPath: SELLER_ORDERS_LINK,
+          },
+        });
       },
     });
   }
@@ -562,28 +743,43 @@ export class SubscriptionsService {
     });
   }
 
-  /** ยกเลิกถาวร — CHECK `subs_state_consistent` ที่ DB ห้ามกลับออกจากสถานะนี้ */
-  async cancel(buyerId: string, id: string): Promise<SubscriptionCardResponse> {
+  /**
+   * ยกเลิกถาวร — CHECK `subs_state_consistent` ที่ DB ห้ามกลับออกจากสถานะนี้
+   *
+   * เหตุผลบังคับตั้งแต่ Phase 8.3 (ด่านอยู่ที่ DTO) · ร้านได้รู้แค่ **หมวดเหตุผล**
+   * ไม่ได้รู้ `note` — ข้อความอิสระที่ผู้ซื้อพิมพ์อาจมีข้อมูลส่วนตัว ซึ่งเกินกว่า
+   * ที่ร้านต้องรู้เพื่อส่งของ (กฎข้อ 7)
+   */
+  async cancel(
+    buyerId: string,
+    id: string,
+    dto: CancelSubscriptionDto,
+  ): Promise<SubscriptionCardResponse> {
     const sub = await this.loadForAction(buyerId, id, ['active', 'paused']);
+    const note = dto.note === undefined || dto.note === '' ? null : dto.note;
 
     return this.commit(sub, {
       data: {
         status: 'cancelled',
         cancelledAt: new Date(),
-        // ทั้งสองค่าเป็นข้อบังคับของ CHECK: cancelled ต้องไม่มีรอบถัดไปค้าง
-        // และ paused_reason มีได้เฉพาะตอนที่ยังหยุดอยู่จริง
+        // ทั้งสามค่าเป็นข้อบังคับของ CHECK: cancelled ต้องไม่มีรอบถัดไปค้าง
+        // และ paused_reason / resume_on มีได้เฉพาะตอนที่ยังหยุดอยู่จริง
         nextOrderDate: null,
         pausedReason: null,
+        resumeOn: null,
+        cancelReason: dto.reason,
+        cancelNote: note,
       },
       event: 'cancelled',
-      detail: { from_status: sub.status },
+      // note ไม่ลง event — event เป็นข้อมูลดิบของสถิติ ไม่ใช่ที่เก็บข้อความผู้ใช้
+      detail: { from_status: sub.status, reason: dto.reason },
       notify: async (tx) => {
         await tx.notification.create({
           data: {
             userId: sub.plan.product.shop.ownerId,
             type: 'subscriber_cancelled',
             title: 'มีผู้ยกเลิกการสมัคร',
-            body: `${sub.plan.product.name} — ${cycleText(sub.plan.cycle)}`,
+            body: `${sub.plan.product.name} — ${cycleText(sub.plan.cycle)} · เหตุผล: ${CANCEL_REASON_TEXT[dto.reason]}`,
             linkPath: SELLER_ORDERS_LINK,
           },
         });
@@ -719,6 +915,12 @@ export class SubscriptionsService {
       detail?: Prisma.InputJsonValue;
       notify?: (tx: Prisma.TransactionClient) => Promise<void>;
       /**
+       * งานเขียนอื่นที่ต้องสำเร็จพร้อมกัน (เช่น ออเดอร์ของ "ส่งรอบนี้เลย") —
+       * รัน **หลัง** updateMany ผ่าน guard แล้ว จึงไม่มีทางสร้างออเดอร์ให้รายการ
+       * ที่สถานะเปลี่ยนไประหว่างทาง · โยน error = rollback ทั้งก้อน
+       */
+      effects?: (tx: Prisma.TransactionClient) => Promise<void>;
+      /**
        * ไม่คืนคูปองที่จองไว้ — ใส่เฉพาะ action ที่ **ไม่แตะวันรอบ** (เปลี่ยนที่อยู่)
        * ค่าปริยายคือ "คืน" เพื่อให้ action ที่เพิ่มมาใหม่ได้พฤติกรรมที่ถูกต้อง
        * โดยไม่ต้องพึ่งความจำของคนเขียน
@@ -743,6 +945,8 @@ export class SubscriptionsService {
             'รายการนี้เพิ่งเปลี่ยนไปแล้ว กรุณารีเฟรชหน้าจอ',
           );
         }
+
+        if (opts.effects) await opts.effects(tx);
 
         // ทุก action ต้องทิ้งรอย — เป็นข้อมูลดิบของกราฟ churn ในเล่ม (W05)
         await tx.subscriptionEvent.create({
@@ -820,9 +1024,32 @@ export class SubscriptionsService {
             'รอบนี้จองคูปองไว้แล้ว',
           );
         }
+        // UNIQUE(subscription_id, cycle_date) ของ orders — "ส่งรอบนี้เลย" กดซ้ำ
+        // หรือ engine เพิ่งสร้างรอบวันนี้ไปแล้ว (Phase 8.3) · ต้องมาก่อนบรรทัด
+        // "สมัครซ้ำ" ข้างล่าง ไม่งั้นผู้ใช้ได้ข้อความที่ไม่จริง
+        // ไม่มี `tier` = ไม่ใช่ index ของคูปอง (ซึ่งก็มี cycle_date) — ถ้า Prisma
+        // รายงาน target เป็นชุดคอลัมน์ คูปองซ้ำจะไม่ถูกจัดเป็นออเดอร์ซ้ำ
+        if (target.includes('cycle_date') && !target.includes('tier')) {
+          throw AppError.conflict(
+            'ORDER_EXISTS_TODAY',
+            'วันนี้มีออเดอร์ของรายการนี้แล้ว',
+          );
+        }
         throw AppError.conflict(
           'ALREADY_SUBSCRIBED',
           'คุณมีรายการแบบเดียวกันส่งไปที่อยู่นี้อยู่แล้ว',
+        );
+      }
+      // deadlock / serialization (P2034) — "ส่งรอบนี้เลย" ชนกับ engine ตอนตี 1 ได้
+      // (ล็อกแถวคนละลำดับ) ฝั่งหนึ่งถูก rollback ทั้งก้อน ไม่มีเงินขยับ จึงตอบ 409
+      // ให้ผู้ใช้รีเฟรชแทนที่จะเป็น 500 (รีวิว security Phase 8.3)
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2034'
+      ) {
+        throw AppError.conflict(
+          'SUBSCRIPTION_CHANGED',
+          'รายการนี้เพิ่งเปลี่ยนไปแล้ว กรุณารีเฟรชหน้าจอ',
         );
       }
       throw e;
@@ -896,6 +1123,8 @@ function toCard(row: SubscriptionRow): SubscriptionCardResponse {
     id: row.id,
     status: row.status,
     pausedReason: row.pausedReason,
+    resumeOn: row.resumeOn ? toISODate(row.resumeOn) : null,
+    cancelReason: row.cancelReason,
     startDate: toISODate(row.startDate),
     nextOrderDate: row.nextOrderDate ? toISODate(row.nextOrderDate) : null,
     cycleAnchorDate: toISODate(row.cycleAnchorDate),
@@ -968,6 +1197,42 @@ function appliedCouponsOf(row: SubscriptionRow): {
     couponNetAmount: combined.net.toNumber(),
   };
 }
+
+/**
+ * วันรอบหลังข้ามไป `n` รอบ — กติกาเดียวกับการกด skip `n` ครั้งติดกัน
+ *
+ * หนีบกับวันนี้ทุกก้าว: ถ้ารายการค้างมาจากตอนที่ engine ไม่ได้รัน (`from` อยู่
+ * ในอดีต) การขยับ 1 ช่องอาจยังได้วันที่ผ่านมาแล้ว → engine ก็ยังตัดเงินรอบนั้น
+ * อยู่ดี ทั้งที่ผู้ใช้เพิ่งกด "ข้ามรอบ" · ใช้ร่วมกันทั้ง skip และหยุดพัก N รอบ
+ * เพื่อให้ "หยุด 1 รอบ" ได้วันเดียวกับ "ข้ามรอบ" เสมอ
+ */
+export function skipFrom(
+  anchor: Date,
+  cycle: Cycle,
+  from: Date,
+  n: number,
+): Date {
+  const today = todayInBangkok();
+  let d = from;
+  for (let i = 0; i < n; i++) {
+    d = nextCycleAfter(anchor, cycle, d > today ? d : today);
+  }
+  return d;
+}
+
+function sourceOf(source?: RetentionSource): { source?: RetentionSource } {
+  return source === undefined ? {} : { source };
+}
+
+/** ข้อความหมวดเหตุผลที่ร้านเห็นในแจ้งเตือน — หน้าจอผู้ซื้อมีชุดของตัวเอง */
+const CANCEL_REASON_TEXT: Record<CancelReason, string> = {
+  too_expensive: 'ราคาสูงไป',
+  too_much_stock: 'ของเหลือ ใช้ไม่ทัน',
+  taking_break: 'ขอพักก่อน',
+  quality: 'ไม่พอใจสินค้า',
+  switching: 'เปลี่ยนไปใช้ที่อื่น',
+  other: 'อื่น ๆ',
+};
 
 function cycleText(cycle: string): string {
   if (cycle === '2w') return 'ทุก 2 สัปดาห์';

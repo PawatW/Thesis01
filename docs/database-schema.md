@@ -175,6 +175,9 @@ erDiagram
     partial unique `coupon_one_per_cycle_tier` บน `(subscription_id, cycle_date, tier)` ทำให้ "1 รอบ ได้ระดับละ 1 ใบ" เป็นข้อเท็จจริงของ DB · จำนวนระดับสูงสุดที่ซ้อนได้จึงเท่ากับจำนวนค่าใน enum `coupon_tier` เอง และฝั่ง `orders` มี **2 ช่องตายตัว** (`platform_redemption_id` / `shop_redemption_id`) ซึ่งเป็นการบังคับเพดานเดียวกันซ้ำอีกชั้น — ต่างจากการย้าย FK ไปฝั่ง `coupon_redemptions.order_id` ที่จะรับกี่ใบก็ได้
     **`tier` เป็นคอลัมน์จริง ไม่ derive จาก `shop_id IS NULL`** เพราะ partial index ต้องเกาะคอลัมน์ และใบจองต้อง snapshot ระดับไว้ (ร้านอาจถูกลบสิทธิ์ทีหลัง แต่รอบที่จองไว้ต้องยังรู้ว่าอยู่ช่องไหน) · CHECK `coupons_tier_shop_consistent` บังคับว่าระดับกับเจ้าของร้านต้องตรงกันทั้งสองทาง — สภาพ "คูปองร้านที่ไม่มีร้าน" คือสภาพที่ตอบไม่ได้ว่าใครรับภาระส่วนลด
     **ด่านสุดท้ายอยู่ฝั่งสินค้า ไม่ใช่ฝั่งคูปอง** — `products.coupon_policy` ให้ร้านปิดระดับรายชิ้นได้โดยไม่ต้องถอนออกจากแคมเปญทั้งใบ
+27. **`orders.quantity` — จำนวนชิ้นเป็นข้อเท็จจริงของรอบ ไม่ใช่ค่าที่อ่านสดจาก subscription** (Phase 8.3 · 2026-11-21)
+    พอผู้ซื้อแก้จำนวนต่อรอบได้ (`POST /subscriptions/:id/quantity`) การให้ร้านอ่าน `subscriptions.quantity` สด ๆ ทำให้จ่าย 1 ชิ้นแล้วแก้เป็น 10 ก่อนร้านแพ็คของได้ · ออเดอร์จึงเก็บจำนวนของตัวเอง (NOT NULL · CHECK 1-10) และ trigger `guard_order_update` ห้ามแก้เหมือนยอดเงิน · migration backfill แถวเก่าจาก subscription ซึ่งถูกต้องเพราะก่อนหน้านี้จำนวนแก้ไม่ได้
+28. **`subscriptions.cancel_reason` (enum) + `cancel_note` + `resume_on`** (Phase 8.3) — เหตุผลเป็น enum เพื่อนับรวมได้ (ข้อมูลดิบของ "ทำไม churn") · CHECK: เหตุผลมีได้เฉพาะ cancelled · note ต้องมีเหตุผล · `resume_on` มีได้เฉพาะ `paused/user` (การแช่แข็งของแอดมินต้องไม่มีวันหมดอายุเอง) · ไม่บังคับ NOT NULL ตอน cancelled เพราะแถวที่ยกเลิกก่อนมีฟีเจอร์ไม่มีเหตุผล — ด่านของรายการใหม่อยู่ที่ DTO
 
 ## สิทธิ์การเข้าถึง (บังคับที่ API ไม่ใช่ที่ DB แล้ว)
 

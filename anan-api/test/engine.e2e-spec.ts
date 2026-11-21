@@ -69,6 +69,10 @@ describe('Engine — รอบอัตโนมัติ (POST /admin/engine/ru
    */
   let othersBefore: {
     id: string;
+    status: 'active' | 'paused' | 'cancelled';
+    pausedReason: 'user' | 'shop_suspended' | null;
+    pausedAt: Date | null;
+    resumeOn: Date | null;
     nextOrderDate: Date | null;
     cycleAnchorDate: Date;
   }[] = [];
@@ -84,7 +88,17 @@ describe('Engine — รอบอัตโนมัติ (POST /admin/engine/ru
     startedAt = new Date();
     othersBefore = await prisma.subscription.findMany({
       where: { buyer: { email: { not: { startsWith: E2E_PREFIX } } } },
-      select: { id: true, nextOrderDate: true, cycleAnchorDate: true },
+      // สถานะ + การหยุดพักด้วย (Phase 8.3): autoResume เปิดรายการของ seed ที่
+      // resume_on อยู่ในช่วงของ time-travel ได้ — คืนแค่วันรอบไม่พอ
+      select: {
+        id: true,
+        status: true,
+        pausedReason: true,
+        pausedAt: true,
+        resumeOn: true,
+        nextOrderDate: true,
+        cycleAnchorDate: true,
+      },
     });
 
     buyer = await registerTestUser(app, 'engine-buyer');
@@ -118,10 +132,21 @@ describe('Engine — รอบอัตโนมัติ (POST /admin/engine/ru
       await prisma.engineRun.deleteMany({
         where: { ranAt: { gte: startedAt } },
       });
+      // event `resumed` ที่ autoResume ทิ้งไว้บนรายการของ seed (Phase 8.3)
+      await prisma.subscriptionEvent.deleteMany({
+        where: {
+          createdAt: { gte: startedAt },
+          subscriptionId: { in: othersBefore.map((o) => o.id) },
+        },
+      });
       for (const sub of othersBefore) {
         await prisma.subscription.update({
           where: { id: sub.id },
           data: {
+            status: sub.status,
+            pausedReason: sub.pausedReason,
+            pausedAt: sub.pausedAt,
+            resumeOn: sub.resumeOn,
             nextOrderDate: sub.nextOrderDate,
             cycleAnchorDate: sub.cycleAnchorDate,
           },
@@ -374,6 +399,160 @@ describe('Engine — รอบอัตโนมัติ (POST /admin/engine/ru
         data: { suspendedAt: null, suspendedReason: null },
       });
     }
+  });
+
+  // ---------- Phase 8.3 — เปิดรายการ "หยุดพัก N รอบ" คืนเอง (feature 06 R2) ----------
+
+  describe('autoResume', () => {
+    /** หยุดพัก 1 รอบผ่าน API จริง แล้วตั้ง `resume_on` ตามเคสผ่าน DB */
+    async function pausedUntil(resumeInDays: number): Promise<string> {
+      const id = await newSubscription({ dueInDays: 5 });
+      await api(app)
+        .post(`/api/v1/subscriptions/${id}/pause`)
+        .set(bearer(buyer.accessToken))
+        .send({ cycles: 1 })
+        .expect(201);
+      await prisma.subscription.update({
+        where: { id },
+        data: { resumeOn: addDays(todayInBangkok(), resumeInDays) },
+      });
+      return id;
+    }
+
+    const resumedEvents = (id: string) =>
+      prisma.subscriptionEvent.count({
+        where: { subscriptionId: id, event: 'resumed' },
+      });
+
+    it('★ อีก 3 วันถึง resume_on → เปิดคืนพร้อมแจ้งเตือน T-3 ในรอบเดียวกัน', async () => {
+      const id = await pausedUntil(3);
+      const target = toISODate(addDays(todayInBangkok(), 3));
+
+      await runEngine().expect(200);
+
+      const sub = await prisma.subscription.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(sub.status).toBe('active');
+      expect(sub.pausedReason).toBeNull();
+      expect(sub.resumeOn).toBeNull();
+      expect(toISODate(sub.nextOrderDate as Date)).toBe(target);
+      expect(toISODate(sub.cycleAnchorDate)).toBe(target);
+
+      const event = await prisma.subscriptionEvent.findFirstOrThrow({
+        where: { subscriptionId: id, event: 'resumed' },
+      });
+      expect(event.detail).toMatchObject({
+        auto: true,
+        next_order_date: target,
+      });
+
+      // ผู้ซื้อต้องรู้ทั้งว่า "กลับมาแล้ว" และ "อีก 3 วันตัดเงิน" — อย่างหลังคือ
+      // เหตุผลที่เปิดล่วงหน้า ถ้าไม่มีใบนี้แปลว่าลำดับงานใน run() ผิด
+      const notes = await prisma.notification.findMany({
+        where: {
+          userId: buyer.id,
+          linkPath: { startsWith: `/subscriptions/${id}` },
+        },
+        select: { type: true },
+      });
+      expect(notes.map((n) => n.type)).toEqual(
+        expect.arrayContaining(['subscription_resumed', 'upcoming_cycle']),
+      );
+      // ยังไม่ถึงวัน — ห้ามมีออเดอร์ใหม่
+      expect(
+        (await ordersOf(id)).some((o) => toISODate(o.cycleDate) === target),
+      ).toBe(false);
+    });
+
+    /**
+     * resume_on ที่มาจาก API อยู่บนกริดของหมุดเสมอ — เปิดคืนแล้วต้องไม่ย้ายหมุด
+     * ไม่งั้นรายการหมุดวันที่ 31 ที่ resume_on ถูกหนีบเป็น 30 จะยุบเป็น 30 ถาวร
+     * (พบจากการรีวิว Phase 8.3) · ตั้งหมุดย้อนไป 1 เดือนให้รอบถัดไปตกที่วันนี้+3
+     */
+    it('★ resume_on บนกริด → เปิดคืนแล้วหมุดเดิมไม่ขยับ', async () => {
+      const target = addDays(todayInBangkok(), 3);
+      const anchor = monthsFrom(target, -1);
+      // ปลายเดือนที่ถูกหนีบทำให้ anchor+1 เดือน ≠ target — เคสนี้ไม่ได้ทดสอบเรื่องนั้น
+      if (monthsFrom(anchor, 1).getTime() !== target.getTime()) return;
+
+      const id = await newSubscription({ dueInDays: 5 });
+      await prisma.subscription.update({
+        where: { id },
+        data: {
+          status: 'paused',
+          pausedReason: 'user',
+          pausedAt: new Date(),
+          cycleAnchorDate: anchor,
+          nextOrderDate: target,
+          resumeOn: target,
+        },
+      });
+
+      await runEngine().expect(200);
+
+      const sub = await prisma.subscription.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(sub.status).toBe('active');
+      expect(toISODate(sub.nextOrderDate as Date)).toBe(toISODate(target));
+      expect(toISODate(sub.cycleAnchorDate)).toBe(toISODate(anchor));
+    });
+
+    it('ยังไม่ถึงช่วง 3 วัน → ยังหยุดอยู่', async () => {
+      const id = await pausedUntil(10);
+      await runEngine().expect(200);
+
+      const sub = await prisma.subscription.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(sub.status).toBe('paused');
+      expect(sub.resumeOn).not.toBeNull();
+    });
+
+    it('resume_on ผ่านไปแล้ว (engine ไม่ได้รัน) → รอบแรกเป็นพรุ่งนี้ ไม่ตัดเงินย้อนหลัง', async () => {
+      const id = await pausedUntil(-5);
+      const before = (await ordersOf(id)).length;
+
+      await runEngine().expect(200);
+
+      const sub = await prisma.subscription.findUniqueOrThrow({
+        where: { id },
+      });
+      expect(sub.status).toBe('active');
+      expect(toISODate(sub.nextOrderDate as Date)).toBe(
+        toISODate(addDays(todayInBangkok(), 1)),
+      );
+      expect((await ordersOf(id)).length).toBe(before);
+    });
+
+    it('รันซ้ำวันเดิม → เปิดคืนครั้งเดียว (event resumed ใบเดียว)', async () => {
+      const id = await pausedUntil(2);
+      await runEngine().expect(200);
+      await runEngine().expect(200);
+      expect(await resumedEvents(id)).toBe(1);
+    });
+
+    it('★ ร้านถูกระงับระหว่างพัก → ไม่เปิดคืน (ระงับแล้วเงินต้องหยุด)', async () => {
+      const id = await pausedUntil(1);
+      await prisma.shop.update({
+        where: { id: BEAN_STORY },
+        data: { suspendedAt: new Date(), suspendedReason: 'ทดสอบ' },
+      });
+      try {
+        await runEngine().expect(200);
+        const sub = await prisma.subscription.findUniqueOrThrow({
+          where: { id },
+        });
+        expect(sub.status).toBe('paused');
+        expect(await resumedEvents(id)).toBe(0);
+      } finally {
+        await prisma.shop.update({
+          where: { id: BEAN_STORY },
+          data: { suspendedAt: null, suspendedReason: null },
+        });
+      }
+    });
   });
 
   it('cron ไม่ได้รันไปหลายเดือน → เก็บตกรอบที่ค้าง 1 ใบ แล้วเดินต่อจากวันนี้', async () => {

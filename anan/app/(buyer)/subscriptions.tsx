@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -19,8 +19,8 @@ import { getProduct, type Plan } from '@/features/catalog/api';
 import { CouponSheet } from '@/features/coupons/CouponSheet';
 import { getMyReview, upsertReview, type Review } from '@/features/orders/api';
 import { CycleRail } from '@/features/subscriptions/CycleRail';
+import { CancelFlowSheet, PauseSheet, QuantitySheet } from '@/features/subscriptions/RetentionSheets';
 import {
-  cancel,
   changeAddress,
   changePlan,
   cycleLabel,
@@ -29,20 +29,22 @@ import {
   listMySubscriptions,
   monthCharges,
   type MonthCharge,
-  pause,
   previewSkip,
   reschedule,
   resume,
+  shipNow,
   skipCycle,
   type SubscriptionCard,
 } from '@/features/subscriptions/api';
-import { addDays } from '@/lib/date';
+import { addCycle, addDays, todayISO } from '@/lib/date';
 import { colors, radius, space, statusTones, type } from '@/lib/theme';
 
 type Confirm = {
   title: string;
   body: string;
   danger?: boolean;
+  /** กล่องที่พูดถึงยอดเงิน — ต้องมีป้าย DEMO (กฎข้อ 1) */
+  demo?: boolean;
   run: () => Promise<{ error: string | null }>;
 };
 
@@ -69,6 +71,10 @@ export default function SubscriptionsScreen() {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [existingReview, setExistingReview] = useState<Review | null>(null);
+  /** Phase 8.3 — กล่อง retention (feature 06 R1–R3) */
+  const [cancelFor, setCancelFor] = useState<SubscriptionCard | null>(null);
+  const [pauseFor, setPauseFor] = useState<SubscriptionCard | null>(null);
+  const [qtyFor, setQtyFor] = useState<SubscriptionCard | null>(null);
 
   const reload = useCallback(async () => {
     const [mine, addr] = await Promise.all([listMySubscriptions(), listAddresses()]);
@@ -131,14 +137,28 @@ export default function SubscriptionsScreen() {
     await reload();
   }
 
+  /**
+   * กันกดซ้ำแบบ synchronous (security-rules C-9) — `busyId` เป็น state ซึ่งยังไม่
+   * re-render ทันระหว่างคลิกรัวสองครั้ง · ปุ่มที่ตัดเงิน ("ส่งรอบนี้เลย") ผ่านตรงนี้
+   * API กันซ้ำด้วย guard + UNIQUE อยู่แล้ว ตรงนี้แค่ไม่ให้ผู้ใช้เห็น 409 จากคลิกตัวเอง
+   */
+  const inFlight = useRef(false);
+
   async function run(id: string, action: () => Promise<{ error: string | null }>, okMessage: string) {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusyId(id);
     setError(null);
-    const { error: err } = await action();
+    const { error: err } = await action().finally(() => {
+      inFlight.current = false;
+    });
     setBusyId(null);
     setConfirm(null);
     setAddressFor(null);
     setPlanFor(null);
+    setCancelFor(null);
+    setPauseFor(null);
+    setQtyFor(null);
 
     if (err != null) {
       // the DB is the authority: if it refuses, show why and re-sync.
@@ -202,6 +222,9 @@ export default function SubscriptionsScreen() {
         onPickPlan={openPlanPicker}
         onReview={openReview}
         onPickCoupon={setCouponFor}
+        onCancel={setCancelFor}
+        onPause={setPauseFor}
+        onQuantity={setQtyFor}
         onRun={run}
       />
       <Group
@@ -215,6 +238,9 @@ export default function SubscriptionsScreen() {
         onPickPlan={openPlanPicker}
         onReview={openReview}
         onPickCoupon={setCouponFor}
+        onCancel={setCancelFor}
+        onPause={setPauseFor}
+        onQuantity={setQtyFor}
         onRun={run}
       />
       <Group
@@ -228,10 +254,27 @@ export default function SubscriptionsScreen() {
         onPickPlan={openPlanPicker}
         onReview={openReview}
         onPickCoupon={setCouponFor}
+        onCancel={setCancelFor}
+        onPause={setPauseFor}
+        onQuantity={setQtyFor}
         onRun={run}
       />
 
       <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} busy={busyId != null} onRun={run} />
+
+      <CancelFlowSheet
+        item={cancelFor}
+        busy={busyId != null}
+        onClose={() => setCancelFor(null)}
+        onRun={run}
+        onOpenCoupons={(s) => {
+          // ข้อเสนอ "ดูคูปอง" ปิดกล่องยกเลิกก่อน — สองกล่องซ้อนกันบนเว็บกดไม่ได้
+          setCancelFor(null);
+          setCouponFor(s);
+        }}
+      />
+      <PauseSheet item={pauseFor} busy={busyId != null} onClose={() => setPauseFor(null)} onRun={run} />
+      <QuantitySheet item={qtyFor} busy={busyId != null} onClose={() => setQtyFor(null)} onRun={run} />
 
       <Modal visible={addressFor != null} transparent animationType="fade" onRequestClose={() => setAddressFor(null)}>
         <View id="subs-address-modal" style={styles.backdrop}>
@@ -383,6 +426,9 @@ function Group({
   onPickPlan,
   onReview,
   onPickCoupon,
+  onCancel,
+  onPause,
+  onQuantity,
   onRun,
   id,
 }: {
@@ -395,6 +441,9 @@ function Group({
   onPickPlan: (s: SubscriptionCard) => void;
   onReview: (s: SubscriptionCard) => void;
   onPickCoupon: (s: SubscriptionCard) => void;
+  onCancel: (s: SubscriptionCard) => void;
+  onPause: (s: SubscriptionCard) => void;
+  onQuantity: (s: SubscriptionCard) => void;
   onRun: (id: string, action: () => Promise<{ error: string | null }>, ok: string) => Promise<void>;
   id?: string;
 }) {
@@ -417,6 +466,9 @@ function Group({
           onPickPlan={onPickPlan}
           onReview={onReview}
           onPickCoupon={onPickCoupon}
+          onCancel={onCancel}
+          onPause={onPause}
+          onQuantity={onQuantity}
           onRun={onRun}
         />
       ))}
@@ -433,6 +485,9 @@ function SubscriptionItem({
   onPickPlan,
   onReview,
   onPickCoupon,
+  onCancel,
+  onPause,
+  onQuantity,
   onRun,
 }: {
   item: SubscriptionCard;
@@ -443,6 +498,9 @@ function SubscriptionItem({
   onPickPlan: (s: SubscriptionCard) => void;
   onReview: (s: SubscriptionCard) => void;
   onPickCoupon: (s: SubscriptionCard) => void;
+  onCancel: (s: SubscriptionCard) => void;
+  onPause: (s: SubscriptionCard) => void;
+  onQuantity: (s: SubscriptionCard) => void;
   onRun: (id: string, action: () => Promise<{ error: string | null }>, ok: string) => Promise<void>;
 }) {
   const days = daysUntil(item.nextOrderDate);
@@ -490,6 +548,10 @@ function SubscriptionItem({
           </Text>
         ) : frozen ? (
           <Text style={styles.frozenNote}>ไม่มีการตัดเงินจนกว่าร้านจะกลับมา</Text>
+        ) : item.status === 'paused' && item.resumeOn != null ? (
+          <Text id={`subs-resume-on-${item.id}`} style={styles.muted}>
+            กลับมาส่ง {formatThaiDate(item.resumeOn)}
+          </Text>
         ) : null}
       </View>
 
@@ -550,13 +612,31 @@ function SubscriptionItem({
             id={`subs-action-pause-${item.id}`}
             label="หยุดชั่วคราว"
             disabled={busy}
-            onPress={() =>
+            onPress={() => onPause(item)}
+          />
+          <Action
+            id={`subs-action-ship-now-${item.id}`}
+            label="ส่งรอบนี้เลย"
+            disabled={busy}
+            onPress={() => {
+              const total = item.pricePerCycle * item.quantity;
+              const next = addCycle(todayISO(), item.cycle);
               onConfirm({
-                title: 'หยุดชั่วคราว',
-                body: 'ระบบจะไม่สร้างออเดอร์และไม่ตัดเงินจนกว่าคุณจะกดกลับมาใช้งาน',
-                run: () => pause(item.id),
-              })
-            }
+                title: 'ส่งรอบนี้เลย',
+                body:
+                  `สร้างออเดอร์และตัดเงินจำลอง ฿${total.toLocaleString('th-TH')} วันนี้ — รอบถัดไปจะเป็น ${formatThaiDate(next)}` +
+                  (item.coupons.length > 0 ? ' · คูปองที่จองไว้กับรอบเดิมจะถูกคืน' : ''),
+                demo: true,
+                run: () => shipNow(item.id),
+              });
+            }}
+          />
+          <Action
+            id={`subs-action-quantity-${item.id}`}
+            label="เปลี่ยนจำนวน"
+            tone="quiet"
+            disabled={busy}
+            onPress={() => onQuantity(item)}
           />
           <Action
             id={`subs-action-plan-${item.id}`}
@@ -579,14 +659,7 @@ function SubscriptionItem({
             label="ยกเลิก"
             tone="danger"
             disabled={busy}
-            onPress={() =>
-              onConfirm({
-                title: 'ยกเลิกการสมัคร',
-                body: 'ยกเลิกถาวร — สมัครใหม่ได้ภายหลัง ออเดอร์ที่ค้างส่งอยู่จะส่งจนจบ',
-                danger: true,
-                run: () => cancel(item.id),
-              })
-            }
+            onPress={() => onCancel(item)}
           />
         </View>
       ) : item.status === 'paused' ? (
@@ -613,19 +686,21 @@ function SubscriptionItem({
               onPress={() => onPickAddress(item)}
             />
           ) : null}
+          {frozen ? null : (
+            <Action
+              id={`subs-action-quantity-${item.id}`}
+              label="เปลี่ยนจำนวน"
+              tone="quiet"
+              disabled={busy}
+              onPress={() => onQuantity(item)}
+            />
+          )}
           <Action
             id={`subs-action-cancel-${item.id}`}
             label="ยกเลิก"
             tone="danger"
             disabled={busy}
-            onPress={() =>
-              onConfirm({
-                title: 'ยกเลิกการสมัคร',
-                body: 'ยกเลิกถาวร — สมัครใหม่ได้ภายหลัง',
-                danger: true,
-                run: () => cancel(item.id),
-              })
-            }
+            onPress={() => onCancel(item)}
           />
         </View>
       ) : null}
@@ -720,6 +795,7 @@ function ConfirmDialog({
           <Text id="subs-confirm-body" style={type.body}>
             {confirm?.body ?? ''}
           </Text>
+          {confirm?.demo === true ? <DemoBadge /> : null}
           <View style={styles.sheetActions}>
             <Button
               id="subs-confirm-ok"

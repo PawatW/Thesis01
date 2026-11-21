@@ -544,7 +544,9 @@ function toSellerOrder(
     cycleDate: toISODate(row.cycleDate),
     status: row.status,
     amount: row.amount.toNumber(),
-    quantity: row.subscription.quantity,
+    // ★ จำนวนที่จ่ายเงินไปแล้วของรอบนี้ ★ ไม่ใช่ subscriptions.quantity ที่ผู้ซื้อแก้ได้
+    // ตลอด — ไม่งั้นจ่าย 1 แล้วแก้เป็น 10 ก่อนร้านแพ็คของ (Phase 8.3)
+    quantity: row.quantity,
     trackingNote: row.trackingNote,
     productId: product.id,
     productName: product.name,

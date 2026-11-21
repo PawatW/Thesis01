@@ -500,6 +500,57 @@ describe('DB invariants — CHECK / UNIQUE / FK ที่ต้องกัน�
       expect(row.status).toBe('active');
     });
 
+    // ---------- Phase 8.3 (feature 06 R1/R2) — ต้องรันตอนรายการยัง active ----------
+
+    it('★ รายการที่ยังไม่ยกเลิกมีเหตุผลการยกเลิก → DB ปฏิเสธ', async () => {
+      await expect(
+        prisma.subscription.update({
+          where: { id: subscriptionId },
+          data: { cancelReason: 'other' },
+        }),
+      ).rejects.toThrow(/subs_cancel_reason_only_when_cancelled/);
+    });
+
+    it('มี note แต่ไม่มีเหตุผล → DB ปฏิเสธ', async () => {
+      await expect(
+        prisma.subscription.update({
+          where: { id: subscriptionId },
+          data: { cancelNote: 'ไม่มีหมวด' },
+        }),
+      ).rejects.toThrow(/subs_cancel_note_needs_reason/);
+    });
+
+    it('★ วันกลับมาบนรายการที่ไม่ได้หยุด หรือหยุดเพราะร้านถูกระงับ → DB ปฏิเสธ', async () => {
+      const resumeOn = new Date('2027-01-10T00:00:00Z');
+      await expect(
+        prisma.subscription.update({
+          where: { id: subscriptionId },
+          data: { resumeOn },
+        }),
+      ).rejects.toThrow(/subs_resume_on_only_user_pause/);
+      // การแช่แข็งของแอดมินต้องไม่มีวันหมดอายุเอง — ไม่งั้น engine เปิดคืนให้
+      await expect(
+        prisma.subscription.update({
+          where: { id: subscriptionId },
+          data: {
+            status: 'paused',
+            pausedReason: 'shop_suspended',
+            resumeOn,
+          },
+        }),
+      ).rejects.toThrow(/subs_resume_on_only_user_pause/);
+
+      // ตัวควบคุม: หยุดเองพร้อมวันกลับต้องผ่าน แล้วคืนสภาพให้เคสถัดไป
+      await prisma.subscription.update({
+        where: { id: subscriptionId },
+        data: { status: 'paused', pausedReason: 'user', resumeOn },
+      });
+      await prisma.subscription.update({
+        where: { id: subscriptionId },
+        data: { status: 'active', pausedReason: null, resumeOn: null },
+      });
+    });
+
     it('★ ยกเลิกแล้วยังมีวันรอบถัดไปค้างอยู่ → DB ปฏิเสธ', async () => {
       await expect(
         prisma.subscription.update({
@@ -534,6 +585,20 @@ describe('DB invariants — CHECK / UNIQUE / FK ที่ต้องกัน�
           data: { status: 'active', pausedReason: 'user' },
         }),
       ).rejects.toThrow();
+    });
+
+    it('note เป็นสตริงว่างบนรายการที่ยกเลิกแล้ว → DB ปฏิเสธ (ไม่มีคือ null)', async () => {
+      await expect(
+        prisma.subscription.update({
+          where: { id: subscriptionId },
+          data: { cancelReason: 'other', cancelNote: '' },
+        }),
+      ).rejects.toThrow(/subs_cancel_note_len/);
+      // ตัวควบคุม: เหตุผล + note บนรายการที่ยกเลิกแล้วต้องผ่าน
+      await prisma.subscription.update({
+        where: { id: subscriptionId },
+        data: { cancelReason: 'other', cancelNote: 'ทดสอบ' },
+      });
     });
   });
 
@@ -581,6 +646,7 @@ describe('DB invariants — CHECK / UNIQUE / FK ที่ต้องกัน�
           cycleDate: today,
           status: 'pending',
           amount: 100,
+          quantity: 1,
           addressSnapshot: { recipient_name: 'ผู้รับ ออเดอร์' },
         },
       });
@@ -624,6 +690,39 @@ describe('DB invariants — CHECK / UNIQUE / FK ที่ต้องกัน�
         where: { id: orderId },
       });
       expect(row.amount.toNumber()).toBe(100);
+    });
+
+    /**
+     * Phase 8.3 — จำนวนชิ้นของรอบที่จ่ายเงินแล้วคือข้อเท็จจริง (รีวิว security)
+     * ถ้าแก้ได้ จ่าย 1 ชิ้นแล้วแก้เป็น 10 ก่อนร้านแพ็คของ = ได้ของ 10 ชิ้น
+     */
+    it('★ แก้จำนวนชิ้นของออเดอร์ที่สร้างแล้ว → DB ปฏิเสธ (trigger)', async () => {
+      await expect(
+        prisma.order.update({ where: { id: orderId }, data: { quantity: 10 } }),
+      ).rejects.toThrow(/จำนวน/);
+      const row = await prisma.order.findUniqueOrThrow({
+        where: { id: orderId },
+      });
+      expect(row.quantity).toBe(1);
+    });
+
+    it('จำนวนชิ้นนอกช่วง 1-10 ตอนสร้างออเดอร์ → DB ปฏิเสธ', async () => {
+      const base = await prisma.order.findUniqueOrThrow({
+        where: { id: orderId },
+      });
+      await expect(
+        prisma.order.create({
+          data: {
+            subscriptionId: base.subscriptionId,
+            buyerId: base.buyerId,
+            cycleDate: new Date('2031-01-01T00:00:00Z'),
+            status: 'pending',
+            amount: 100,
+            quantity: 11,
+            addressSnapshot: { recipient_name: 'เกินเพดาน' },
+          },
+        }),
+      ).rejects.toThrow(/orders_quantity_range/);
     });
 
     it('เดินหน้าทีละขั้นตามลำดับ → ผ่านปกติ', async () => {

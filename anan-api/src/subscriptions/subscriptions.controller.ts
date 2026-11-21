@@ -20,10 +20,14 @@ import {
   type SubscriptionCouponsResponse,
 } from '../coupons/dto/coupon.dto';
 import {
+  CancelSubscriptionDto,
   ChangeAddressDto,
   ChangePlanDto,
+  ChangeQuantityDto,
   CreateSubscriptionDto,
+  PauseDto,
   RescheduleDto,
+  SkipDto,
   UpsertReviewDto,
   type CheckoutResultResponse,
   type ReviewResponse,
@@ -62,7 +66,7 @@ export class SubscriptionsController {
     return this.subscriptions.create(user.id, dto);
   }
 
-  // ---------- 7 actions ของ W05 ----------
+  // ---------- actions ของ W05 ----------
   // controller ไม่มี logic เลย: กฎว่าใครทำอะไรได้ในสถานะไหนอยู่ใน service ทั้งหมด
   // (ปุ่มที่ซ่อนในแอปเป็นแค่ UX — curl ยิงตรงเข้ามาได้เสมอ)
   // ทุกตัวคืนการ์ดที่อัปเดตแล้ว เพื่อให้หน้าจอวาดใหม่ได้โดยไม่ต้องยิงซ้ำ
@@ -71,16 +75,18 @@ export class SubscriptionsController {
   skip(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SkipDto,
   ): Card {
-    return this.subscriptions.skip(user.id, id);
+    return this.subscriptions.skip(user.id, id, dto.source);
   }
 
   @Post(':id/pause')
   pause(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PauseDto,
   ): Card {
-    return this.subscriptions.pause(user.id, id);
+    return this.subscriptions.pause(user.id, id, dto);
   }
 
   @Post(':id/resume')
@@ -106,7 +112,7 @@ export class SubscriptionsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ChangePlanDto,
   ): Card {
-    return this.subscriptions.changePlan(user.id, id, dto.planId);
+    return this.subscriptions.changePlan(user.id, id, dto.planId, dto.source);
   }
 
   @Post(':id/address')
@@ -122,8 +128,29 @@ export class SubscriptionsController {
   cancel(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelSubscriptionDto,
   ): Card {
-    return this.subscriptions.cancel(user.id, id);
+    return this.subscriptions.cancel(user.id, id, dto);
+  }
+
+  // ---------- Phase 8.3 — retention (feature 06 R3) ----------
+
+  @Post(':id/quantity')
+  changeQuantity(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ChangeQuantityDto,
+  ): Card {
+    return this.subscriptions.changeQuantity(user.id, id, dto.quantity);
+  }
+
+  /** ไม่มี body — ยอดเงินอ่านจากแผนใน DB เท่านั้น (กฎข้อ 7) */
+  @Post(':id/ship-now')
+  shipNow(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Card {
+    return this.subscriptions.shipNow(user.id, id);
   }
 
   // ---------- รีวิว (feature 17) ----------

@@ -302,6 +302,7 @@ describe('Seller — ร้านค้า สินค้า ออเดอร
       await api(app)
         .post(`/api/v1/subscriptions/${subscriptionId}/cancel`)
         .set(bearer(buyer.accessToken))
+        .send({ reason: 'other' })
         .expect(201);
 
       const cancelled = await dashboard();

@@ -48,4 +48,6 @@ export interface EngineRunDetail {
   paymentsFailed: number;
   /** รายการที่ทำงานไม่สำเร็จ — ต้องเห็นในรายงาน ไม่ใช่หายเงียบ */
   failed: number;
+  /** รายการ "หยุดพัก N รอบ" ที่ครบกำหนดแล้วระบบเปิดคืนให้ (Phase 8.3) */
+  autoResumed: number;
 }

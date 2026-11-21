@@ -273,10 +273,10 @@ async function main(): Promise<void> {
   // ---------- 7. ประวัติออเดอร์ (ให้เดโม่ไม่ว่างเปล่าตอนเปิดครั้งแรก) ----------
   await prisma.order.createMany({
     data: [
-      { id: ORDER(1), subscriptionId: SUB(1), buyerId: U.buyer, cycleDate: addDays(today, -60), status: 'delivered', amount: 255, addressSnapshot: BUYER_ADDRESS_SNAPSHOT, trackingNote: 'TH1234567890', confirmedAt: daysAgo(55), createdAt: daysAgo(60) },
-      { id: ORDER(2), subscriptionId: SUB(1), buyerId: U.buyer, cycleDate: addDays(today, -30), status: 'delivered', amount: 255, addressSnapshot: BUYER_ADDRESS_SNAPSHOT, trackingNote: 'TH1234567891', confirmedAt: daysAgo(25), createdAt: daysAgo(30) },
-      { id: ORDER(3), subscriptionId: SUB(2), buyerId: U.buyer, cycleDate: addDays(today, -30), status: 'shipped', amount: 198, addressSnapshot: BUYER_ADDRESS_SNAPSHOT, trackingNote: 'TH1234567892', createdAt: daysAgo(3) },
-      { id: ORDER(4), subscriptionId: SUB(3), buyerId: U.buyer, cycleDate: addDays(today, -30), status: 'delivered', amount: 549, addressSnapshot: WORK_ADDRESS_SNAPSHOT, trackingNote: 'TH1234567893', confirmedAt: daysAgo(26), createdAt: daysAgo(30) },
+      { id: ORDER(1), subscriptionId: SUB(1), buyerId: U.buyer, cycleDate: addDays(today, -60), status: 'delivered', amount: 255, quantity: 1, addressSnapshot: BUYER_ADDRESS_SNAPSHOT, trackingNote: 'TH1234567890', confirmedAt: daysAgo(55), createdAt: daysAgo(60) },
+      { id: ORDER(2), subscriptionId: SUB(1), buyerId: U.buyer, cycleDate: addDays(today, -30), status: 'delivered', amount: 255, quantity: 1, addressSnapshot: BUYER_ADDRESS_SNAPSHOT, trackingNote: 'TH1234567891', confirmedAt: daysAgo(25), createdAt: daysAgo(30) },
+      { id: ORDER(3), subscriptionId: SUB(2), buyerId: U.buyer, cycleDate: addDays(today, -30), status: 'shipped', amount: 198, quantity: 2, addressSnapshot: BUYER_ADDRESS_SNAPSHOT, trackingNote: 'TH1234567892', createdAt: daysAgo(3) },
+      { id: ORDER(4), subscriptionId: SUB(3), buyerId: U.buyer, cycleDate: addDays(today, -30), status: 'delivered', amount: 549, quantity: 1, addressSnapshot: WORK_ADDRESS_SNAPSHOT, trackingNote: 'TH1234567893', confirmedAt: daysAgo(26), createdAt: daysAgo(30) },
     ],
   });
 

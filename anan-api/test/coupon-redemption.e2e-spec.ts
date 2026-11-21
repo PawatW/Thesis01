@@ -500,6 +500,8 @@ describe('Feature 18 — จองคูปองกับรอบ · engine �
       ['skip', 'skip'],
       ['pause', 'pause'],
       ['cancel', 'cancel'],
+      // Phase 8.3 — ส่งรอบนี้เลยย้ายหมุดไปวันนี้ รอบที่จองไว้จึงไม่มีวันเกิด
+      ['ship-now', 'ship-now'],
     ])('%s → คูปองถูกคืนพร้อมโควตา', async (_label, action) => {
       const b = await makeBuyer(`red-rel-${action}`);
       const sub = await subscribe(b);
@@ -509,6 +511,8 @@ describe('Feature 18 — จองคูปองกับรอบ · engine �
       await api(app)
         .post(`/api/v1/subscriptions/${sub.id}/${action}`)
         .set(bearer(b.user.accessToken))
+        // เหตุผลบังคับเฉพาะ cancel (Phase 8.3) — action อื่นไม่สนใจ body นี้
+        .send(action === 'cancel' ? { reason: 'other' } : {})
         .expect(201);
 
       const row = await prisma.couponRedemption.findFirstOrThrow({
