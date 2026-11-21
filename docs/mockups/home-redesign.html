@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ANAN Home Redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ─── Theme tokens ───────────────────────────────────────────
+   violet = โทนตามรูปอ้างอิง · pine = โทนปัจจุบันของแอป (theme.ts) */
+:root, [data-theme="violet"] {
+  --bg: #F5F4FB; --surface: #FFFFFF; --surface-alt: #F1EFFA; --line: #E7E4F2;
+  --ink: #1B1730; --muted: #5B5675; --faint: #6F6A88;
+  --primary: #6D4AE8; --primary-strong: #5435C9; --primary-soft: #EEE9FF;
+  --accent: #FF5C8A; --accent-soft: #FFE8EF;
+  --hero-a: #B9A4FF; --hero-b: #8E6CF5; --hero-c: #F7A8D0;
+  --promo-a: #8E6CF5; --promo-b: #D984F0;
+  --sale: #E0245E; --rating: #F5A524; --ok: #1F9D6B;
+  --tile-1: #FDECEF; --tile-2: #ECF3EF; --tile-3: #FFF2E2; --tile-4: #EEE9FF;
+}
+[data-theme="pine"] {
+  --bg: #F6F3EC; --surface: #FFFFFF; --surface-alt: #EFEAE0; --line: #DDD5C7;
+  --ink: #1C1917; --muted: #57504A; --faint: #6E675E;
+  --primary: #1F5F4B; --primary-strong: #154237; --primary-soft: #E3EDE8;
+  --accent: #E8A317; --accent-soft: #FBEED4;
+  --hero-a: #2E7A62; --hero-b: #1F5F4B; --hero-c: #E8A317;
+  --promo-a: #1F5F4B; --promo-b: #2E7A62;
+  --sale: #C2410C; --rating: #E8A317; --ok: #1F5F4B;
+  --tile-1: #FBEDE6; --tile-2: #E3EDE8; --tile-3: #FBEED4; --tile-4: #EFEAE0;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; font-size: 14px; line-height: 1.55; }
+button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
+input { font: inherit; }
+svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* ─── Shell: sidebar | main | right panel ─── */
+.app { display: grid; grid-template-columns: 232px minmax(0, 1fr) 320px; min-height: 100vh; }
+.side { background: var(--surface); border-right: 1px solid var(--line); padding: 20px 14px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.side > * { flex-shrink: 0; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 18px; font-weight: 700; font-size: 20px; }
+.brand .logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--hero-b), var(--hero-c)); display: grid; place-items: center; color: #fff; }
+.nav a { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 10px; color: var(--muted); text-decoration: none; font-weight: 500; }
+.nav a:hover { background: var(--surface-alt); color: var(--ink); }
+.nav a.on { background: var(--primary); color: #fff; }
+.nav a .tag { margin-left: auto; font-size: 11px; background: var(--accent); color: #fff; padding: 1px 8px; border-radius: 99px; font-weight: 600; }
+.nav a .count { margin-left: auto; font-size: 12px; color: var(--faint); }
+.nav hr { border: 0; border-top: 1px solid var(--line); margin: 10px 6px; }
+.side-promo { margin-top: 14px; border-radius: 16px; padding: 16px; color: #fff; background: linear-gradient(160deg, var(--promo-a), var(--promo-b)); position: relative; overflow: hidden; }
+.side-promo small { opacity: .9; }
+.side-promo b { display: block; font-size: 20px; line-height: 1.3; margin: 2px 0 4px; }
+.side-promo code { display: inline-block; background: rgba(255,255,255,.22); border: 1px dashed rgba(255,255,255,.7); border-radius: 8px; padding: 2px 8px; font-family: inherit; font-weight: 600; margin: 6px 0 12px; }
+.side-promo button { background: #fff; color: var(--primary-strong); padding: 6px 14px; border-radius: 99px; font-weight: 600; font-size: 13px; }
+.side-promo .blob { position: absolute; right: -18px; bottom: -18px; width: 90px; height: 90px; border-radius: 50%; background: rgba(255,255,255,.18); }
+.side-foot { margin-top: auto; padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+.help { display: flex; gap: 10px; align-items: center; padding: 8px 10px; color: var(--muted); font-size: 13px; }
+.mode { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-radius: 10px; background: var(--surface-alt); font-weight: 500; }
+
+.main { padding: 18px 26px 40px; min-width: 0; }
+.topbar { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+.search { flex: 1; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; height: 44px; max-width: 520px; color: var(--faint); }
+.search input { border: 0; outline: 0; flex: 1; background: none; color: var(--ink); }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+.icon-btn { position: relative; display: flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 500; }
+.icon-btn .dot { position: absolute; top: -6px; left: 10px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; border-radius: 99px; min-width: 17px; height: 17px; display: grid; place-items: center; padding: 0 4px; }
+.avatar { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.avatar span.pic { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, var(--hero-c), var(--hero-b)); color: #fff; display: grid; place-items: center; font-weight: 700; }
+
+.demo { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--sale); background: var(--accent-soft); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
+[data-theme="pine"] .demo { color: #8A5A00; }
+
+/* Hero */
+.hero { position: relative; border-radius: 22px; overflow: hidden; color: #fff; padding: 34px 38px; min-height: 230px; background: linear-gradient(120deg, var(--hero-b) 0%, var(--hero-a) 55%, var(--hero-c) 130%); display: grid; grid-template-columns: 1.1fr 1fr; align-items: center; }
+.hero .chip { display: inline-block; background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.4); padding: 3px 12px; border-radius: 99px; font-size: 12px; font-weight: 500; }
+.hero h1 { font-size: 34px; line-height: 1.3; margin: 12px 0 8px; }
+.hero p { opacity: .92; max-width: 380px; }
+.hero .cta { margin-top: 18px; display: inline-flex; align-items: center; gap: 8px; background: #fff; color: var(--primary-strong); padding: 10px 20px; border-radius: 99px; font-weight: 600; }
+.hero-art { position: relative; height: 200px; }
+.hero-art .box { position: absolute; border-radius: 18px; background: rgba(255,255,255,.95); box-shadow: 0 14px 30px rgba(0,0,0,.14); display: grid; place-items: center; font-size: 44px; }
+.hero-art .b1 { width: 120px; height: 140px; left: 12%; top: 26px; transform: rotate(-7deg); }
+.hero-art .b2 { width: 130px; height: 150px; left: 40%; top: 6px; font-size: 52px; }
+.hero-art .b3 { width: 108px; height: 120px; left: 70%; top: 52px; transform: rotate(8deg); }
+.hero-art .next { position: absolute; left: 22%; bottom: -4px; background: #fff; color: var(--ink); border-radius: 12px; padding: 8px 12px; font-size: 12px; box-shadow: 0 10px 24px rgba(0,0,0,.15); display: flex; gap: 8px; align-items: center; }
+.hero-art .next b { color: var(--primary-strong); }
+.dots { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+.dots i { width: 7px; height: 7px; border-radius: 99px; background: rgba(255,255,255,.5); }
+.dots i.on { width: 20px; background: #fff; }
+
+/* Categories */
+.cats { margin-top: 18px; background: var(--surface); border-radius: 18px; padding: 16px 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); gap: 4px; }
+.cat { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 6px 2px; border-radius: 12px; font-size: 13px; color: var(--muted); font-weight: 500; }
+.cat .ic { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; background: var(--surface-alt); transition: transform .15s; }
+.cat:hover .ic { transform: translateY(-2px); }
+.cat.on .ic { background: var(--primary-soft); outline: 2px solid var(--primary); }
+.cat.on { color: var(--primary-strong); }
+
+/* Promo tiles */
+.promos { margin-top: 18px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.promo { border-radius: 18px; padding: 18px; display: flex; justify-content: space-between; gap: 10px; min-height: 140px; position: relative; overflow: hidden; }
+.promo h3 { font-size: 16px; }
+.promo p { font-size: 13px; color: var(--muted); }
+.promo .more { margin-top: 12px; font-size: 13px; font-weight: 600; color: var(--primary-strong); display: inline-flex; gap: 4px; align-items: center; }
+.promo .art { font-size: 54px; align-self: center; }
+.p1 { background: var(--tile-1); } .p2 { background: var(--tile-2); } .p3 { background: var(--tile-3); }
+.timer { display: flex; gap: 4px; margin-top: 10px; }
+.timer span { background: var(--surface); border-radius: 6px; padding: 2px 7px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--sale); }
+
+/* Sections + product cards */
+.sec { margin-top: 26px; }
+.sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.sec-head h2 { font-size: 19px; }
+.sec-head .sub { font-size: 13px; color: var(--faint); font-weight: 400; margin-left: 8px; }
+.pill-btn { border: 1px solid var(--line); background: var(--surface); padding: 5px 14px; border-radius: 99px; font-size: 13px; font-weight: 500; color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.card { background: var(--surface); border-radius: 16px; padding: 10px; display: flex; flex-direction: column; border: 1px solid transparent; transition: border-color .15s, box-shadow .15s; }
+.card:hover { border-color: var(--line); box-shadow: 0 10px 24px rgba(30,20,60,.07); }
+.thumb { position: relative; border-radius: 12px; aspect-ratio: 1 / .9; display: grid; place-items: center; font-size: 58px; }
+.thumb .off { position: absolute; top: 8px; left: 8px; background: var(--sale); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; }
+.thumb .fav { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 50%; background: #fff; display: grid; place-items: center; color: var(--muted); }
+.thumb .fav.on { color: var(--sale); }
+.thumb .fav.on svg { fill: currentColor; }
+.card .shop { margin-top: 10px; font-size: 12px; color: var(--faint); display: flex; align-items: center; gap: 4px; }
+.card h4 { font-size: 14px; font-weight: 600; line-height: 1.4; min-height: 2.8em; }
+.cycles { display: flex; gap: 4px; margin: 8px 0; flex-wrap: wrap; }
+.cycles button { font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); font-weight: 500; }
+.cycles button.on { border-color: var(--primary); color: var(--primary-strong); background: var(--primary-soft); }
+.cycles button:disabled { opacity: .35; cursor: default; }
+.price-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 6px; margin-top: auto; }
+.price { white-space: nowrap; }
+.price b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.price small { color: var(--faint); font-size: 12px; }
+.price s { color: var(--faint); font-size: 12px; margin-left: 4px; }
+.meta { font-size: 12px; color: var(--faint); display: flex; gap: 4px; align-items: center; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta .star { color: var(--rating); }
+.add { width: 36px; height: 36px; border-radius: 10px; background: var(--primary); color: #fff; display: grid; place-items: center; flex: none; }
+.add:hover { background: var(--primary-strong); }
+.carousel-dots { display: flex; justify-content: center; gap: 6px; margin-top: 14px; }
+.carousel-dots i { width: 7px; height: 7px; border-radius: 99px; background: var(--line); }
+.carousel-dots i.on { background: var(--primary); width: 18px; }
+
+/* Trust bar */
+.trust { margin-top: 28px; background: var(--surface); border-radius: 16px; padding: 16px 20px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.trust div { display: flex; gap: 10px; align-items: center; }
+.trust .ti { width: 38px; height: 38px; border-radius: 50%; background: var(--primary-soft); color: var(--primary-strong); display: grid; place-items: center; flex: none; }
+.trust b { display: block; font-size: 13px; }
+.trust small { color: var(--faint); font-size: 12px; }
+
+/* Right panel = "รอบส่งถัดไป" (แทนตะกร้าในรูป) */
+.right { background: var(--surface); border-left: 1px solid var(--line); padding: 20px 18px; position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.right h3 { font-size: 16px; display: flex; align-items: center; justify-content: space-between; }
+.right h3 a { font-size: 12px; color: var(--primary-strong); font-weight: 600; text-decoration: none; }
+.sub-item { display: grid; grid-template-columns: 58px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.sub-item .t { width: 58px; height: 64px; border-radius: 10px; display: grid; place-items: center; font-size: 28px; }
+.sub-item h5 { font-size: 13px; font-weight: 600; line-height: 1.35; }
+.sub-item .cy { font-size: 12px; color: var(--faint); }
+.when { font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.when.urgent { color: #C2410C; } .when.soon { color: #8A5A00; } .when.calm { color: var(--ink); }
+.rail { height: 4px; border-radius: 99px; background: var(--surface-alt); margin: 6px 0; overflow: hidden; }
+.rail i { display: block; height: 100%; background: #E8A317; border-radius: 99px; }
+.sub-ctl { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
+.qty { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; }
+.qty button { width: 26px; height: 26px; color: var(--muted); }
+.qty span { min-width: 20px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sub-ctl b { font-variant-numeric: tabular-nums; }
+.mini-actions { display: flex; gap: 6px; margin-top: 6px; }
+.mini-actions button { font-size: 11px; padding: 2px 9px; border-radius: 6px; background: var(--surface-alt); color: var(--muted); font-weight: 500; }
+.coupon { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.coupon input { flex: 1; border: 0; padding: 9px 12px; outline: 0; min-width: 0; background: var(--surface); color: var(--ink); }
+.coupon button { background: var(--primary); color: #fff; padding: 0 16px; font-weight: 600; }
+.sum { display: grid; gap: 6px; font-size: 13px; }
+.sum div { display: flex; justify-content: space-between; color: var(--muted); }
+.sum .disc { color: var(--ok); }
+.sum .total { color: var(--ink); font-weight: 700; font-size: 16px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.cta-wide { background: var(--primary); color: #fff; border-radius: 12px; padding: 12px; font-weight: 600; display: flex; justify-content: center; gap: 8px; align-items: center; }
+.cards-acc { display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--faint); flex-wrap: wrap; }
+.cards-acc span { border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-weight: 700; color: var(--muted); }
+.mini-list > div { display: flex; gap: 10px; align-items: center; padding: 8px 0; }
+.mini-list .t { width: 46px; height: 46px; border-radius: 10px; display: grid; place-items: center; font-size: 22px; flex: none; }
+.mini-list h6 { font-size: 13px; font-weight: 600; }
+.mini-list small { font-size: 12px; color: var(--faint); }
+.mini-list .add { width: 30px; height: 30px; border-radius: 8px; margin-left: auto; }
+.recent { display: flex; gap: 8px; }
+.recent i { width: 52px; height: 52px; border-radius: 10px; display: grid; place-items: center; font-size: 24px; font-style: normal; }
+
+/* Theme switcher (เฉพาะ mockup) */
+.switcher { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 50; background: var(--ink); color: #fff; border-radius: 99px; padding: 5px; display: flex; gap: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font-size: 13px; }
+.switcher button { padding: 6px 14px; border-radius: 99px; color: rgba(255,255,255,.75); }
+.switcher button.on { background: #fff; color: #111; font-weight: 600; }
+
+/* Bottom tabs (มือถือ) */
+.tabs { display: none; }
+
+/* ─── Responsive ─── */
+@media (max-width: 1280px) {
+  .app { grid-template-columns: 220px minmax(0, 1fr); }
+  .right { position: static; height: auto; grid-column: 2; border-left: 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); align-items: start; }
+}
+@media (max-width: 980px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { display: none; }
+  .right { grid-column: 1; grid-template-columns: minmax(0,1fr); }
+  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .promos { grid-template-columns: 1fr 1fr; }
+  .promos .p3 { display: none; }
+  .hero { grid-template-columns: 1fr; }
+  .hero-art { display: none; }
+  .trust { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .main { padding: 14px 16px 90px; }
+  .right { padding: 16px 16px 90px; }
+  .top-actions .lbl, .avatar .nm { display: none; }
+  .hero { padding: 24px 22px; min-height: 0; }
+  .hero h1 { font-size: 26px; }
+  .cats { grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 12px 4px; }
+  .cats .cat:nth-child(n+11) { display: none; }
+  .cat .ic { width: 46px; height: 46px; font-size: 20px; }
+  .cat { font-size: 11px; text-align: center; }
+  .promos { grid-template-columns: 1fr; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .thumb { font-size: 44px; }
+  .trust { grid-template-columns: 1fr; }
+  .tabs { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--line); padding: 6px 0 10px; z-index: 40; }
+  .tabs a { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); text-decoration: none; }
+  .tabs a.on { color: var(--primary-strong); font-weight: 600; }
+  .switcher { bottom: 72px; }
+}
+</style>
+</head>
+<body data-theme="violet">
+
+<!-- svg sprite -->
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="tag" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></symbol>
+  <symbol id="store" viewBox="0 0 24 24"><path d="M4 9h16l-1-5H5zM4 9v11h16V9M9 20v-6h6v6"/></symbol>
+  <symbol id="compare" viewBox="0 0 24 24"><path d="M8 3v18M16 3v18M3 8h5M16 16h5"/></symbol>
+  <symbol id="repeat" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></symbol>
+  <symbol id="box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></symbol>
+  <symbol id="ticket" viewBox="0 0 24 24"><path d="M3 9a2 2 0 0 0 0 6v3a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-3a2 2 0 0 1 0-6V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1z"/><path d="M14 5v14" stroke-dasharray="2 2"/></symbol>
+  <symbol id="pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></symbol>
+  <symbol id="card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></symbol>
+  <symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></symbol>
+  <symbol id="bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="truck" viewBox="0 0 24 24"><path d="M1 4h14v12H1zM15 9h4l4 4v3h-8"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></symbol>
+  <symbol id="shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+</svg>
+
+<div class="app">
+  <!-- ─────────── Sidebar ─────────── -->
+  <aside class="side">
+    <div class="brand"><span class="logo"><svg class="i"><use href="#repeat"/></svg></span>ANAN</div>
+    <nav class="nav">
+      <a class="on" href="#"><svg class="i"><use href="#home"/></svg>หน้าแรก</a>
+      <a href="#"><svg class="i"><use href="#grid"/></svg>หมวดสินค้า</a>
+      <a href="#"><svg class="i"><use href="#tag"/></svg>ดีลสมัครรับ<span class="tag">Hot</span></a>
+      <a href="#"><svg class="i"><use href="#store"/></svg>ร้านค้า</a>
+      <a href="#"><svg class="i"><use href="#compare"/></svg>เปรียบเทียบ</a>
+      <hr />
+      <a href="#"><svg class="i"><use href="#repeat"/></svg>ของที่สมัครไว้<span class="count">4</span></a>
+      <a href="#"><svg class="i"><use href="#box"/></svg>ออเดอร์</a>
+      <a href="#"><svg class="i"><use href="#heart"/></svg>รายการโปรด</a>
+      <a href="#"><svg class="i"><use href="#ticket"/></svg>คูปอง<span class="count">2</span></a>
+      <a href="#"><svg class="i"><use href="#pin"/></svg>ที่อยู่จัดส่ง</a>
+      <a href="#"><svg class="i"><use href="#card"/></svg>บัตรของฉัน</a>
+      <a href="#"><svg class="i"><use href="#gear"/></svg>ตั้งค่าบัญชี</a>
+    </nav>
+
+    <div class="side-promo">
+      <small>โปรสมาชิกใหม่</small>
+      <b>ลด 20%<br />รอบไหนก็ได้</b>
+      <code>NEWROUND20</code><br />
+      <button>เก็บคูปอง</button>
+      <span class="blob"></span>
+    </div>
+
+    <div class="side-foot">
+      <div class="help"><svg class="i"><use href="#chat"/></svg><div><b style="color:var(--ink)">ต้องการความช่วยเหลือ?</b><br />ติดต่อทีมงาน ANAN</div></div>
+      <button class="mode"><span style="display:flex;gap:8px;align-items:center"><svg class="i"><use href="#store"/></svg>สลับเป็นโหมดร้านค้า</span><svg class="i" style="width:14px"><use href="#arrow"/></svg></button>
+    </div>
+  </aside>
+
+  <!-- ─────────── Main ─────────── -->
+  <main class="main">
+    <div class="topbar">
+      <label class="search"><svg class="i"><use href="#search"/></svg><input placeholder="ค้นหาสินค้า ร้านค้า หรือหมวด…" /></label>
+      <div class="top-actions">
+        <button class="icon-btn"><svg class="i"><use href="#heart"/></svg><span class="lbl">รายการโปรด</span></button>
+        <button class="icon-btn"><svg class="i"><use href="#bell"/></svg><span class="dot">3</span></button>
+        <div class="avatar"><span class="pic">ป</span><span class="nm">ปวัตน์ ว.</span></div>
+      </div>
+    </div>
+
+    <section class="hero">
+      <div>
+        <span class="chip">รอบส่งอัตโนมัติ · 2 สัปดาห์ / เดือน / 2 เดือน</span>
+        <h1>ของใช้ประจำ<br />ให้มาเองตามรอบ</h1>
+        <p>สมัครครั้งเดียวจากหลายร้าน ถูกกว่าซื้อครั้งเดียวสูงสุด 20% ข้ามรอบ หยุดชั่วคราว หรือยกเลิกได้ทุกเมื่อ</p>
+        <button class="cta">เริ่มเลือกของ <svg class="i"><use href="#arrow"/></svg></button>
+      </div>
+      <div class="hero-art">
+        <div class="box b1">☕</div>
+        <div class="box b2">🐱</div>
+        <div class="box b3">🧴</div>
+        <div class="next"><svg class="i" style="color:#E8A317"><use href="#truck"/></svg>รอบถัดไป: <b>กาแฟคั่วกลาง</b> · อีก 2 วัน</div>
+      </div>
+      <div class="dots"><i class="on"></i><i></i><i></i><i></i></div>
+    </section>
+
+    <section class="cats" id="cats"></section>
+
+    <section class="promos">
+      <div class="promo p1">
+        <div>
+          <h3>คูปอง NEWROUND20</h3>
+          <p>ลด 20% สูงสุด ฿80<br />ใช้กับรอบไหนก็ได้</p>
+          <div class="timer"><span>12</span>:<span>45</span>:<span id="sec">18</span></div>
+        </div>
+        <div class="art">🎟️</div>
+      </div>
+      <div class="promo p2">
+        <div>
+          <h3>ส่งฟรีทุกรอบ</h3>
+          <p>เมื่อสมัครรับ<br />รวมจากร้านเดียวกัน</p>
+          <span class="more">ดูเงื่อนไข <svg class="i" style="width:14px"><use href="#arrow"/></svg></span>
+        </div>
+        <div class="art">📦</div>
+      </div>
+      <div class="promo p3">
+        <div>
+          <h3>ร้านใหม่ในเดือนนี้</h3>
+          <p>Bean Story · Herbal Care<br />Pet &amp; Home</p>
+          <span class="more">ไปที่ร้าน <svg class="i" style="width:14px"><use href="#arrow"/></svg></span>
+        </div>
+        <div class="art">🏪</div>
+      </div>
+    </section>
+
+    <section class="sec">
+      <div class="sec-head"><h2>ดีลคุ้มเมื่อสมัครรับ<span class="sub">เทียบกับราคาซื้อครั้งเดียว</span></h2><button class="pill-btn">ดูทั้งหมด</button></div>
+      <div class="grid" id="deals"></div>
+      <div class="carousel-dots"><i class="on"></i><i></i><i></i></div>
+    </section>
+
+    <section class="sec">
+      <div class="sec-head"><h2>แนะนำสำหรับคุณ<span class="sub">คนสมัครเยอะที่สุด</span></h2><button class="pill-btn">ดูทั้งหมด</button></div>
+      <div class="grid" id="recs"></div>
+    </section>
+
+    <section class="trust">
+      <div><span class="ti"><svg class="i"><use href="#shield"/></svg></span><span><b>ชำระเงินปลอดภัย</b><small>DEMO — ไม่มีการตัดเงินจริง</small></span></div>
+      <div><span class="ti"><svg class="i"><use href="#pause"/></svg></span><span><b>ข้าม / หยุดได้ทุกเมื่อ</b><small>ไม่มีสัญญาผูกมัด</small></span></div>
+      <div><span class="ti"><svg class="i"><use href="#bell"/></svg></span><span><b>เตือนก่อนตัดรอบ</b><small>ล่วงหน้า 3 วัน</small></span></div>
+      <div><span class="ti"><svg class="i"><use href="#store"/></svg></span><span><b>หลายร้านในที่เดียว</b><small>ติดตามรอบส่งรวมกัน</small></span></div>
+    </section>
+  </main>
+
+  <!-- ─────────── Right panel ─────────── -->
+  <aside class="right">
+    <div>
+      <h3>รอบส่งถัดไป (4) <a href="#">จัดการ</a></h3>
+      <div id="subs"></div>
+    </div>
+
+    <div style="display:grid;gap:12px">
+      <div class="coupon"><input placeholder="ใส่โค้ดคูปอง" value="NEWROUND20" /><button>ใช้</button></div>
+      <div class="sum">
+        <div><span>ยอดรอบเดือนนี้</span><span id="subtotal">฿0</span></div>
+        <div class="disc"><span>คูปอง NEWROUND20</span><span>-฿80</span></div>
+        <div><span>ค่าส่ง</span><span>ฟรี</span></div>
+        <div class="total"><span>รวมเดือนนี้</span><span id="total">฿0</span></div>
+      </div>
+      <span class="demo">⚠ DEMO — ไม่มีการตัดเงินจริง</span>
+      <button class="cta-wide"><svg class="i"><use href="#repeat"/></svg>ดูปฏิทินรอบส่งทั้งหมด</button>
+      <div class="cards-acc">ตัดเงินอัตโนมัติจากบัตร: <span>VISA</span> •••• 4242</div>
+    </div>
+
+    <div>
+      <h3>สมัครคู่กันบ่อย</h3>
+      <div class="mini-list">
+        <div><span class="t" style="background:var(--tile-3)">🧻</span><div><h6>กระดาษทิชชู่ 12 ม้วน</h6><small>฿160 / เดือน</small></div><button class="add"><svg class="i"><use href="#plus"/></svg></button></div>
+        <div><span class="t" style="background:var(--tile-2)">🧺</span><div><h6>น้ำยาซักผ้าเติม</h6><small>฿179 / เดือน</small></div><button class="add"><svg class="i"><use href="#plus"/></svg></button></div>
+      </div>
+    </div>
+
+    <div>
+      <h3>ดูล่าสุด</h3>
+      <div class="recent"><i style="background:var(--tile-1)">🧴</i><i style="background:var(--tile-4)">💊</i><i style="background:var(--tile-3)">☕</i><i style="background:var(--tile-2)">🦷</i></div>
+    </div>
+  </aside>
+</div>
+
+<nav class="tabs">
+  <a class="on" href="#"><svg class="i"><use href="#home"/></svg>หน้าแรก</a>
+  <a href="#"><svg class="i"><use href="#repeat"/></svg>ของฉัน</a>
+  <a href="#"><svg class="i"><use href="#box"/></svg>ออเดอร์</a>
+  <a href="#"><svg class="i"><use href="#bell"/></svg>แจ้งเตือน</a>
+  <a href="#"><svg class="i"><use href="#user"/></svg>โปรไฟล์</a>
+</nav>
+
+<div class="switcher">
+  <button data-t="violet" class="on">โทนตามรูป (ม่วง)</button>
+  <button data-t="pine">โทนปัจจุบัน (เขียวสน)</button>
+</div>
+
+<script>
+// ข้อมูลจาก anan-api/prisma/seed.ts (ราคาซื้อครั้งเดียว vs ราคาต่อรอบ/ชิ้น)
+const CATS = [['☕','กาแฟ'],['✨','สกินแคร์'],['🦷','ยาสีฟัน'],['🧴','แชมพู'],['💊','วิตามิน'],['🐾','สัตว์เลี้ยง'],['👶','ผ้าอ้อม'],['🏠','ของใช้ในบ้าน'],['👕','ชุดชั้นใน'],['🧦','ถุงเท้า']];
+const TILES = ['--tile-1','--tile-2','--tile-3','--tile-4'];
+const P = [
+  { n:'กาแฟคั่วกลาง Arabica 250g', s:'Bean Story', e:'☕', one:320, plans:{'2w':279,'1m':255,'2m':295}, r:4.9, subs:128 },
+  { n:'ดริปแบ็ก 10 ซอง', s:'Bean Story', e:'🫖', one:250, plans:{'1m':199}, r:4.7, subs:64 },
+  { n:'ยาสีฟันสมุนไพร 160g', s:'Herbal Care', e:'🦷', one:120, plans:{'1m':99,'2m':89}, r:4.8, subs:97 },
+  { n:'แชมพูมะกรูด 400ml', s:'Herbal Care', e:'🧴', one:245, plans:{'1m':199,'2m':185}, r:4.6, subs:71 },
+  { n:'อาหารแมวเกรดพรีเมียม 1.5 กก.', s:'Pet & Home', e:'🐱', one:620, plans:{'2w':289,'1m':549}, r:4.9, subs:156 },
+  { n:'เซรั่มไนอาซินาไมด์ 10%', s:'Herbal Care', e:'💧', one:459, plans:{'2m':389}, r:4.5, subs:43 },
+  { n:'วิตามินซี 1000mg 30 เม็ด', s:'Herbal Care', e:'💊', one:350, plans:{'1m':289}, r:4.7, subs:58 },
+  { n:'ทรายแมวเต้าหู้ 6 ลิตร', s:'Pet & Home', e:'🪣', one:290, plans:{'1m':249}, r:4.6, subs:82 },
+];
+const LBL = { '2w':'2 สัปดาห์', '1m':'เดือน', '2m':'2 เดือน' };
+const svg = id => `<svg class="i"><use href="#${id}"/></svg>`;
+const baht = n => '฿' + n.toLocaleString('th-TH');
+
+document.getElementById('cats').innerHTML = CATS.map(([e,n],i) =>
+  `<button class="cat${i===0?' on':''}"><span class="ic">${e}</span>${n}</button>`).join('');
+document.querySelectorAll('.cat').forEach(b => b.onclick = () => b.classList.toggle('on'));
+
+function card(p, i) {
+  const keys = Object.keys(p.plans);
+  const k = keys.includes('1m') ? '1m' : keys[0];
+  const per = p.plans[k];
+  const off = Math.round((1 - per / p.one) * 100);
+  return `<article class="card" data-i="${i}">
+    <div class="thumb" style="background:var(${TILES[i % 4]})">${p.e}
+      <span class="off">-${off}%</span>
+      <button class="fav">${svg('heart')}</button>
+    </div>
+    <div class="shop">${svg('store').replace('class="i"','class="i" style="width:13px;height:13px"')}${p.s}</div>
+    <h4>${p.n}</h4>
+    <div class="cycles">${['2w','1m','2m'].map(c =>
+      `<button data-c="${c}" class="${c===k?'on':''}" ${p.plans[c]?'':'disabled'}>${LBL[c]}</button>`).join('')}</div>
+    <div class="price-row">
+      <div>
+        <div class="price"><b class="pp">${baht(per)}</b> <small class="pc">/ ${LBL[k]}</small></div>
+        <s style="color:var(--faint);font-size:12px">ซื้อครั้งเดียว ${baht(p.one)}</s>
+      </div>
+      <button class="add" title="สมัครรับ">${svg('plus')}</button>
+    </div>
+    <div class="meta"><span class="star">★</span>${p.r} · สมัครอยู่ ${p.subs} คน</div>
+  </article>`;
+}
+document.getElementById('deals').innerHTML = P.slice(0,4).map(card).join('');
+document.getElementById('recs').innerHTML = P.slice(4).map((p,i)=>card(p,i+4)).join('');
+
+document.querySelectorAll('.card').forEach(el => {
+  const p = P[+el.dataset.i];
+  el.querySelectorAll('.cycles button').forEach(b => b.onclick = () => {
+    el.querySelectorAll('.cycles button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    const per = p.plans[b.dataset.c];
+    el.querySelector('.pp').textContent = baht(per);
+    el.querySelector('.pc').textContent = '/ ' + LBL[b.dataset.c];
+    el.querySelector('.off').textContent = '-' + Math.round((1 - per / p.one) * 100) + '%';
+  });
+  el.querySelector('.fav').onclick = e => e.currentTarget.classList.toggle('on');
+});
+
+// รอบส่งถัดไป — สีเวลา: ≤3 วัน clay · 4-7 amber · >7 ink (กฎของ theme.ts)
+const SUBS = [
+  { n:'กาแฟคั่วกลาง Arabica', e:'☕', c:'ทุก 2 สัปดาห์ · Bean Story', d:2, prog:86, price:279, q:1, t:3 },
+  { n:'อาหารแมวเกรดพรีเมียม', e:'🐱', c:'ทุกเดือน · Pet & Home', d:5, prog:83, price:549, q:1, t:2 },
+  { n:'ยาสีฟันสมุนไพร', e:'🦷', c:'ทุกเดือน · Herbal Care', d:12, prog:60, price:99, q:2, t:4 },
+  { n:'แชมพูมะกรูด', e:'🧴', c:'ทุก 2 เดือน · Herbal Care', d:27, prog:55, price:185, q:1, t:1 },
+];
+function renderSubs() {
+  document.getElementById('subs').innerHTML = SUBS.map((s,i) => {
+    const cls = s.d <= 3 ? 'urgent' : s.d <= 7 ? 'soon' : 'calm';
+    return `<div class="sub-item">
+      <span class="t" style="background:var(${TILES[s.t-1]})">${s.e}</span>
+      <div>
+        <h5>${s.n}</h5>
+        <div class="cy">${s.c}</div>
+        <span class="when ${cls}">${svg('clock').replace('class="i"','class="i" style="width:13px;height:13px"')}อีก ${s.d} วัน</span>
+        <div class="rail"><i style="width:${s.prog}%"></i></div>
+        <div class="sub-ctl">
+          <span class="qty"><button data-i="${i}" data-d="-1">−</button><span>${s.q}</span><button data-i="${i}" data-d="1">+</button></span>
+          <b>${baht(s.price * s.q)}</b>
+        </div>
+        <div class="mini-actions"><button>ข้ามรอบนี้</button><button>หยุดชั่วคราว</button></div>
+      </div>
+    </div>`;
+  }).join('');
+  const sub = SUBS.reduce((a,s)=>a + s.price*s.q, 0);
+  document.getElementById('subtotal').textContent = baht(sub);
+  document.getElementById('total').textContent = baht(sub - 80);
+  document.querySelectorAll('.qty button').forEach(b => b.onclick = () => {
+    const s = SUBS[+b.dataset.i]; s.q = Math.max(1, Math.min(9, s.q + +b.dataset.d)); renderSubs();
+  });
+}
+renderSubs();
+
+// countdown ของคูปอง
+let t = 12*3600 + 45*60 + 18;
+setInterval(() => { t--; const [h,m,s] = [t/3600|0, (t%3600)/60|0, t%60].map(x=>String(x).padStart(2,'0'));
+  const sp = document.querySelectorAll('.timer span'); sp[0].textContent=h; sp[1].textContent=m; sp[2].textContent=s; }, 1000);
+
+document.querySelectorAll('.switcher button').forEach(b => b.onclick = () => {
+  document.body.dataset.theme = b.dataset.t;
+  document.querySelectorAll('.switcher button').forEach(x => x.classList.toggle('on', x === b));
+});
+</script>
+</body>
+</html>

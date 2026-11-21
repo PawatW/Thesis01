@@ -54,7 +54,15 @@ export function ProductCard({
       accessibilityLabel={item.name}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
-      <ProductImage images={item.images} categoryIcon={item.categoryIcon} height={120}>
+      <ProductImage
+        images={item.images}
+        categoryIcon={item.categoryIcon}
+        // รูปสูงตามความกว้างการ์ด (ราว 4:3) แทนความสูงตายตัว — การ์ดกว้างบนเว็บ
+        // จะไม่ได้รูปแบนยาว · หนีบไว้ไม่ให้สูงเกินจอมือถือ
+        height={Math.min(180, Math.max(110, Math.round(width * 0.72)))}
+        iconSize={48}
+        style={styles.image}
+      >
         {off > 0 ? (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>ประหยัด {off}%</Text>
@@ -62,26 +70,41 @@ export function ProductCard({
         ) : null}
       </ProductImage>
 
+      <View style={styles.shopRow}>
+        <Ionicons name="storefront-outline" size={12} color={colors.textFaint} />
+        <Text style={styles.shop} numberOfLines={1}>
+          {item.shopName}
+        </Text>
+      </View>
       <Text style={styles.name} numberOfLines={2}>
         {item.name}
       </Text>
-      <Text style={styles.shop} numberOfLines={1}>
-        {item.shopName}
-      </Text>
 
       {plan == null ? (
-        <Pill label="ปิดรับชั่วคราว" tone="cancelled" />
+        <View style={styles.closed}>
+          <Pill label="ปิดรับชั่วคราว" tone="cancelled" />
+        </View>
       ) : (
-        <>
-          <View style={styles.priceLine}>
-            <Text style={styles.price}>{baht(plan.pricePerCycle)}</Text>
-            <Text style={styles.per}>{cycleShort(plan.cycle)}</Text>
+        <View style={styles.priceRow}>
+          <View style={styles.priceCol}>
+            <View style={styles.priceLine}>
+              <Text style={styles.price}>{baht(plan.pricePerCycle)}</Text>
+              <Text style={styles.per}>{cycleShort(plan.cycle)}</Text>
+            </View>
+            <View style={styles.priceLine}>
+              <Text style={styles.was}>{baht(item.oneTimePrice)}</Text>
+              <Text style={styles.wasLabel}>ซื้อครั้งเดียว</Text>
+            </View>
           </View>
-          <View style={styles.priceLine}>
-            <Text style={styles.was}>{baht(item.oneTimePrice)}</Text>
-            <Text style={styles.wasLabel}>ซื้อครั้งเดียว</Text>
-          </View>
-        </>
+          {/* ตัวบอกว่า "กดเพื่อสมัคร" เป็นแค่ภาพ — ทั้งการ์ดคือปุ่มอยู่แล้ว
+              ถ้าเป็น Pressable ซ้อนจะกลายเป็น <button> ใน<button> บนเว็บ */}
+          {/* การ์ดแคบบนมือถือ (2 คอลัมน์) ไม่มีที่ให้ปุ่ม — ราคาสำคัญกว่า */}
+          {width >= 180 ? (
+            <View style={styles.go} importantForAccessibility="no" accessibilityElementsHidden>
+              <Ionicons name="add" size={20} color={colors.onPrimary} />
+            </View>
+          ) : null}
+        </View>
       )}
 
       <View style={styles.meta}>
@@ -126,12 +149,14 @@ export function ProductCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: space.md,
+    padding: space.sm + 2,
     gap: 6,
   },
+  image: { borderRadius: radius.md, marginBottom: 4 },
+  closed: { alignSelf: 'flex-start' },
   pressed: { borderColor: colors.borderStrong, backgroundColor: colors.surfaceAlt },
   badge: {
     position: 'absolute',
@@ -148,8 +173,8 @@ const styles = StyleSheet.create({
   compare: {
     position: 'absolute',
     // กรอบนอกไม่มี padding แล้ว จึงต้องบวก padding ของการ์ดเองเข้าไป
-    top: space.md + space.sm,
-    right: space.md + space.sm,
+    top: space.sm + 2 + space.sm,
+    right: space.sm + 2 + space.sm,
     zIndex: 1,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -162,8 +187,19 @@ const styles = StyleSheet.create({
   compareOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   compareText: { ...type.label, color: colors.textMuted },
   compareTextOn: { color: colors.primaryStrong },
-  name: { ...type.bodyStrong, minHeight: 44 },
-  shop: { ...type.caption, color: colors.textMuted },
+  name: { ...type.bodyStrong, minHeight: 52 },
+  shopRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  shop: { ...type.caption, color: colors.textFaint, flexShrink: 1 },
+  priceRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: space.sm },
+  priceCol: { flexShrink: 1, minWidth: 0 },
+  go: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   priceLine: { flexDirection: 'row', alignItems: 'baseline', gap: 4, flexWrap: 'wrap' },
   price: { ...type.price, color: colors.text },
   per: { ...type.caption, color: colors.textMuted },
