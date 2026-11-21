@@ -107,68 +107,6 @@ testCase(
 );
 
 testCase(
-  { id: 'TC-055', priority: 'P1', feature: FEATURE },
-  'Dashboard แสดงสมาชิก รายได้ต่อเดือน และยกเลิกเดือนนี้ พร้อมป้าย DEMO',
-  async ({ page }) => {
-    await test.step('Arrange — ล็อกอินเป็นร้าน Bean Story', async () => {
-      await loginAs(page, 'seller');
-    });
-
-    await test.step('Act — เปิดหน้าภาพรวมของร้าน', async () => {
-      await gotoApp(page, '/(seller)');
-    });
-
-    await test.step('Assert — ตัวเลขตรงกับที่ฐานข้อมูลนับได้จริง', async () => {
-      const [counted] = await queryTestDatabase<{ subs: string }>(
-        `select count(*)::text as subs
-           from subscriptions s
-           join product_plans p on p.id = s.plan_id
-           join products pr on pr.id = p.product_id
-          where pr.shop_id = $1 and s.status = 'active'`,
-        [SHOPS.beanStory.id],
-      );
-      await expect(page.locator(ids.sellerDashboard.subscribers)).toHaveText(
-        counted!.subs,
-      );
-      // ★ เทียบตัวเลขจริง ★ `toContainText('฿')` ผ่านได้แม้ยอดเป็น 0 หรือผิดเท่าตัว
-      const [mrr] = await queryTestDatabase<{ mrr: string }>(
-        `select coalesce(sum(
-                  p.price_per_cycle * s.quantity *
-                  case p.cycle when '2w' then 2 when '2m' then 0.5 else 1 end
-                ), 0)::text as mrr
-           from subscriptions s
-           join product_plans p on p.id = s.plan_id
-           join products pr on pr.id = p.product_id
-           join shops sh on sh.id = pr.shop_id
-          where pr.shop_id = $1 and s.status = 'active'
-            and pr.suspended_at is null and sh.suspended_at is null`,
-        [SHOPS.beanStory.id],
-      );
-      await expect(page.locator(ids.sellerDashboard.mrr)).toHaveText(
-        `฿${Number(mrr!.mrr).toLocaleString('th-TH')}`,
-      );
-
-      const [churn] = await queryTestDatabase<{ count: string }>(
-        `select count(*)::text as count
-           from subscription_events e
-           join subscriptions s on s.id = e.subscription_id
-           join product_plans p on p.id = s.plan_id
-           join products pr on pr.id = p.product_id
-          where pr.shop_id = $1 and e.event = 'cancelled'
-            and e.created_at >= date_trunc('month', now() at time zone 'Asia/Bangkok')
-                                 at time zone 'Asia/Bangkok'`,
-        [SHOPS.beanStory.id],
-      );
-      await expect(page.locator(ids.sellerDashboard.churn)).toHaveText(
-        Number(churn!.count).toLocaleString('th-TH'),
-      );
-      // ตัวเลขเงินทุกจุดต้องมีป้ายเดโม่ (กฎเหล็กข้อ 1)
-      await expect(page.getByText('DEMO').first()).toBeVisible();
-    });
-  },
-);
-
-testCase(
   { id: 'TC-056', priority: 'P0', feature: FEATURE },
   'ลงสินค้าใหม่ครบ 2 ขั้นแล้วขึ้น catalog ฝั่งผู้ซื้อทันที',
   async ({ page }) => {
@@ -375,58 +313,6 @@ testCase(
     });
 
     await test.step('Cleanup — คืนวันรอบของ subscription ให้เหมือนก่อนเคสนี้', async () => {
-      if (before == null) return;
-      await queryTestDatabase(
-        `update subscriptions set next_order_date = $1, cycle_anchor_date = $2 where id = $3`,
-        [before.next_order_date, before.cycle_anchor_date, SUBSCRIPTIONS.coffeeMonthly.id],
-      );
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-059', priority: 'P1', feature: FEATURE },
-  'แท็บล่วงหน้าสรุปเป็นรายสินค้า พร้อมคำเตือนว่าเป็นตัวเลขประมาณ',
-  async ({ page }) => {
-    let before: { next_order_date: string; cycle_anchor_date: string } | null = null;
-
-    await test.step('Arrange — ตั้งให้สมาชิกกาแฟถึงรอบภายใน 7 วัน', async () => {
-      before = await subscriptionDates(SUBSCRIPTIONS.coffeeMonthly.id);
-      await queryTestDatabase(
-        `update subscriptions
-            set next_order_date = current_date + 3, cycle_anchor_date = current_date + 3
-          where id = $1`,
-        [SUBSCRIPTIONS.coffeeMonthly.id],
-      );
-      await loginAs(page, 'seller');
-      await gotoApp(page, '/(seller)/orders');
-    });
-
-    await test.step('Act — เปิดแท็บล่วงหน้า', async () => {
-      await page.locator(ids.sellerOrders.tab('forecast')).click();
-    });
-
-    await test.step('Assert — เห็นสินค้าที่จะถึงรอบ + ข้อความว่าเป็นค่าประมาณ', async () => {
-      await expect(page.locator(ids.sellerOrders.forecastNote)).toContainText(
-        'ประมาณ',
-      );
-      // ★ เทียบจำนวนจริง ★ สมาชิกรอบ 2 สัปดาห์เกิดหลายออเดอร์ในช่วงเดียว —
-      // การเช็คแค่คำว่า "ออเดอร์" ทำให้บั๊กนับหัวละ 1 ใบรอดมาได้
-      const [expected] = await queryTestDatabase<{ subs: string; units: string }>(
-        `select count(*)::text as subs, coalesce(sum(s.quantity * p.qty_per_cycle), 0)::text as units
-           from subscriptions s
-           join product_plans p on p.id = s.plan_id
-           join products pr on pr.id = p.product_id
-          where pr.id = $1 and s.status = 'active'
-            and s.next_order_date <= current_date + 7`,
-        [SHOPS.beanStory.coffeeProductId],
-      );
-      await expect(
-        page.locator(ids.sellerOrders.forecastItem(SHOPS.beanStory.coffeeProductId)),
-      ).toContainText(`${expected!.subs} ออเดอร์ / ${expected!.units} ชิ้น`);
-    });
-
-    await test.step('Cleanup — คืนวันรอบให้เหมือนก่อนเคสนี้', async () => {
       if (before == null) return;
       await queryTestDatabase(
         `update subscriptions set next_order_date = $1, cycle_anchor_date = $2 where id = $3`,

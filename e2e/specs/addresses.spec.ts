@@ -219,25 +219,3 @@ testCase(
     });
   },
 );
-
-testCase(
-  { id: 'TC-038', priority: 'P2', feature: FEATURE },
-  'บันทึกที่อยู่โดยไม่กรอกช่องบังคับแล้วถูกปฏิเสธรายช่อง',
-  async ({ page }) => {
-    await test.step('Arrange — เปิดฟอร์มเพิ่มที่อยู่ใหม่', async () => {
-      await loginAs(page, 'buyer');
-      await gotoApp(page, '/profile/addresses');
-      await page.locator(ids.addresses.create).click();
-      await expect(page.locator(ids.addresses.form)).toBeVisible();
-    });
-
-    await test.step('Act — กดบันทึกทั้งที่ยังไม่กรอกอะไร', async () => {
-      await page.locator(ids.addresses.submit).click();
-    });
-
-    await test.step('Assert — ขึ้น error ที่ช่องผู้รับ และฟอร์มยังเปิดอยู่', async () => {
-      await expect(page.locator(ids.addresses.recipientError)).toBeVisible();
-      await expect(page.locator(ids.addresses.form)).toBeVisible();
-    });
-  },
-);

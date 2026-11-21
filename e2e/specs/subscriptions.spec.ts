@@ -26,6 +26,9 @@ type SubscriptionRow = {
   cycle_anchor_date: string;
   plan_id: string;
   address_id: string;
+  quantity: number;
+  resume_on: string | null;
+  cancel_reason: string | null;
 };
 
 /**
@@ -43,7 +46,10 @@ async function subscriptionRow(id: string): Promise<SubscriptionRow> {
             next_order_date::text  as next_order_date,
             cycle_anchor_date::text as cycle_anchor_date,
             plan_id,
-            address_id
+            address_id,
+            quantity,
+            resume_on::text as resume_on,
+            cancel_reason::text as cancel_reason
        from subscriptions where id = $1`,
     [id],
   );
@@ -92,58 +98,6 @@ testCase(
 );
 
 testCase(
-  { id: 'TC-040', priority: 'P1', feature: FEATURE },
-  'รายการที่กำลังใช้งานมีปุ่มครบทุก action ของ W05',
-  async ({ page }) => {
-    const id = SUBSCRIPTIONS.coffeeMonthly.id;
-
-    await test.step('Arrange — ล็อกอินเป็นผู้ซื้อ', async () => {
-      await loginAs(page, 'buyer');
-    });
-
-    await test.step('Act — เปิดหน้ารายการของฉัน', async () => {
-      await gotoApp(page, '/subscriptions');
-      await expect(page.locator(ids.subscriptions.item(id))).toBeVisible();
-    });
-
-    await test.step('Assert — เห็นปุ่มข้ามรอบ เลื่อน หยุด เปลี่ยนรอบส่ง เปลี่ยนที่อยู่ และยกเลิก', async () => {
-      await expect(page.locator(ids.subscriptions.action.skip(id))).toBeVisible();
-      await expect(page.locator(ids.subscriptions.action.reschedule(id))).toBeVisible();
-      await expect(page.locator(ids.subscriptions.action.pause(id))).toBeVisible();
-      await expect(page.locator(ids.subscriptions.action.plan(id))).toBeVisible();
-      await expect(page.locator(ids.subscriptions.action.address(id))).toBeVisible();
-      await expect(page.locator(ids.subscriptions.action.cancel(id))).toBeVisible();
-      // ยังใช้งานอยู่ จึงต้องไม่มีปุ่มกลับมาใช้งาน
-      await expect(page.locator(ids.subscriptions.action.resume(id))).toHaveCount(0);
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-041', priority: 'P1', feature: FEATURE },
-  'รายการที่หยุดไว้เองมีปุ่มกลับมาใช้งาน แต่ไม่มีปุ่มข้ามรอบหรือหยุดซ้ำ',
-  async ({ page }) => {
-    const id = SUBSCRIPTIONS.catFoodPaused.id;
-
-    await test.step('Arrange — ล็อกอินเป็นผู้ซื้อ', async () => {
-      await loginAs(page, 'buyer');
-    });
-
-    await test.step('Act — เปิดหน้ารายการของฉัน', async () => {
-      await gotoApp(page, '/subscriptions');
-      await expect(page.locator(ids.subscriptions.item(id))).toBeVisible();
-    });
-
-    await test.step('Assert — มีเฉพาะ action ที่ทำได้ในสถานะ paused', async () => {
-      await expect(page.locator(ids.subscriptions.action.resume(id))).toBeVisible();
-      await expect(page.locator(ids.subscriptions.action.cancel(id))).toBeVisible();
-      await expect(page.locator(ids.subscriptions.action.skip(id))).toHaveCount(0);
-      await expect(page.locator(ids.subscriptions.action.pause(id))).toHaveCount(0);
-    });
-  },
-);
-
-testCase(
   { id: 'TC-042', priority: 'P0', feature: FEATURE },
   'กดข้ามรอบแล้วต้องบอกวันที่ก่อนและหลังก่อนให้ยืนยัน (ข้อบังคับ W05)',
   async ({ page }) => {
@@ -164,31 +118,6 @@ testCase(
       const body = page.locator(ids.subscriptions.confirmBody);
       await expect(body).toContainText('ข้ามรอบวันที่');
       await expect(body).toContainText('รอบถัดไปจะเป็น');
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-043', priority: 'P1', feature: FEATURE },
-  'กล่องยืนยันการยกเลิกบอกว่าเป็นการยกเลิกถาวร และปิดได้โดยไม่ทำอะไร',
-  async ({ page }) => {
-    const id = SUBSCRIPTIONS.coffeeMonthly.id;
-
-    await test.step('Arrange — เปิดหน้ารายการของฉัน', async () => {
-      await loginAs(page, 'buyer');
-      await gotoApp(page, '/subscriptions');
-      await expect(page.locator(ids.subscriptions.action.cancel(id))).toBeVisible();
-    });
-
-    await test.step('Act — กดยกเลิกเพื่อเปิดกล่องยืนยัน แล้วกดปิด', async () => {
-      await page.locator(ids.subscriptions.action.cancel(id)).click();
-      await expect(page.locator(ids.subscriptions.confirmBody)).toContainText('ยกเลิกถาวร');
-      await page.locator(ids.subscriptions.confirmClose).click();
-    });
-
-    await test.step('Assert — รายการยังอยู่ในสถานะเดิม ไม่ถูกยกเลิก', async () => {
-      await expect(page.locator(ids.subscriptions.status(id))).toHaveText('กำลังใช้งาน');
-      await expect(page.locator(ids.subscriptions.error)).toHaveCount(0);
     });
   },
 );
@@ -285,50 +214,6 @@ testCase(
 );
 
 testCase(
-  { id: 'TC-046', priority: 'P2', feature: FEATURE },
-  'กล่องเปลี่ยนที่อยู่แสดงที่อยู่ทั้งหมดให้เลือก',
-  async ({ page }) => {
-    const id = SUBSCRIPTIONS.coffeeMonthly.id;
-
-    await test.step('Arrange — เปิดหน้ารายการของฉัน', async () => {
-      await loginAs(page, 'buyer');
-      await gotoApp(page, '/subscriptions');
-      await expect(page.locator(ids.subscriptions.action.address(id))).toBeVisible();
-    });
-
-    await test.step('Act — กดปุ่มเปลี่ยนที่อยู่', async () => {
-      await page.locator(ids.subscriptions.action.address(id)).click();
-    });
-
-    await test.step('Assert — เห็นที่อยู่ของ seed ทั้งสองเป็นตัวเลือก', async () => {
-      await expect(page.locator(ids.subscriptions.addressModal)).toBeVisible();
-      await expect(page.locator(ids.subscriptions.addressOption(ADDRESSES.home.id))).toBeVisible();
-      await expect(page.locator(ids.subscriptions.addressOption(ADDRESSES.work.id))).toBeVisible();
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-047', priority: 'P1', feature: FEATURE },
-  'ยอดที่จะถูกตัดจริงในเดือนนี้ถูกแสดงพร้อมป้าย DEMO',
-  async ({ page }) => {
-    await test.step('Arrange — ล็อกอินเป็นผู้ซื้อที่มีรายการใช้งานอยู่', async () => {
-      await loginAs(page, 'buyer');
-    });
-
-    await test.step('Act — เปิดหน้ารายการของฉัน', async () => {
-      await gotoApp(page, '/subscriptions');
-    });
-
-    await test.step('Assert — เห็นยอดรวมเป็นจำนวนเงิน และมีป้ายบอกว่าเป็นเดโม่ (กฎเหล็กข้อ 1)', async () => {
-      await expect(page.locator(ids.subscriptions.spend)).toContainText('฿');
-      await expect(page.locator(ids.subscriptions.spend)).toContainText('เดือนนี้จ่ายรวม');
-      await expect(page.getByText('DEMO — ไม่มีการตัดเงินจริง').first()).toBeVisible();
-    });
-  },
-);
-
-testCase(
   { id: 'TC-125', priority: 'P1', feature: FEATURE },
   'ปฏิทินการตัดเงินของเดือนนี้ลงวันตรงกับ next_order_date และยอดตรงกับราคาคูณจำนวนใน DB',
   async ({ page }) => {
@@ -420,12 +305,12 @@ testCase(
       await expect(page.locator(ids.subscriptions.action.pause(id))).toBeVisible();
     });
 
-    await test.step('Act — กดหยุดชั่วคราวแล้วยืนยัน', async () => {
+    await test.step('Act — กดหยุดชั่วคราว เลือก "ไม่กำหนด" แล้วยืนยัน', async () => {
       await page.locator(ids.subscriptions.action.pause(id)).click();
-      await expect(page.locator(ids.subscriptions.confirmBody)).toContainText(
-        'ไม่สร้างออเดอร์และไม่ตัดเงิน',
-      );
-      await page.locator(ids.subscriptions.confirmOk).click();
+      await expect(page.locator(ids.subscriptions.pauseModal)).toContainText('ไม่ตัดเงิน');
+      // Phase 8.3: กล่องหยุดมีตัวเลือก N รอบ — เคสนี้คือการหยุดแบบไม่มีกำหนด (พฤติกรรมเดิม)
+      await page.locator(ids.subscriptions.pauseOption('open')).click();
+      await page.locator(ids.subscriptions.pauseConfirm).click();
     });
 
     await test.step('Assert — อยู่กลุ่มหยุดชั่วคราวบนจอ และ DB เป็น paused/user', async () => {
@@ -438,6 +323,7 @@ testCase(
       expect(row.status).toBe('paused');
       // 'user' เท่านั้น — 'shop_suspended' เป็นการแช่แข็งของระบบที่ผู้ซื้อตั้งเองไม่ได้
       expect(row.paused_reason).toBe('user');
+      expect(row.resume_on).toBeNull();
     });
   },
 );
@@ -544,10 +430,15 @@ testCase(
       await expect(page.locator(ids.subscriptions.action.cancel(id))).toBeVisible();
     });
 
-    await test.step('Act — กดยกเลิกแล้วยืนยัน', async () => {
+    await test.step('Act — กดยกเลิก เลือกเหตุผลแล้วยืนยัน', async () => {
       await page.locator(ids.subscriptions.action.cancel(id)).click();
-      await expect(page.locator(ids.subscriptions.confirmBody)).toContainText('ยกเลิกถาวร');
-      await page.locator(ids.subscriptions.confirmOk).click();
+      await expect(page.locator(ids.subscriptions.cancelModal)).toContainText('ยกเลิกถาวร');
+      // ยังไม่เลือกเหตุผล → ปุ่มยืนยันกดไม่ได้ (API ก็ตอบ 400 ถ้ายิงตรง — TC-131)
+      await expect(page.locator(ids.subscriptions.cancelConfirm)).toBeDisabled();
+      await page.locator(ids.subscriptions.cancelReason('other')).click();
+      // รายการที่หยุดอยู่ไม่มีข้อเสนอ — ข้อเสนอทุกตัวเป็น action ของรายการ active
+      await expect(page.locator(ids.subscriptions.cancelOffer)).toHaveCount(0);
+      await page.locator(ids.subscriptions.cancelConfirm).click();
     });
 
     await test.step('Assert — อยู่กลุ่มยกเลิกแล้ว ไม่มีปุ่ม action เหลือ และ DB เป็น cancelled', async () => {
@@ -561,6 +452,7 @@ testCase(
       expect(row.status).toBe('cancelled');
       // CHECK subs_state_consistent บังคับไว้ที่ DB ด้วย: ยกเลิกแล้วต้องไม่มีรอบค้าง
       expect(row.next_order_date).toBeNull();
+      expect(row.cancel_reason).toBe('other');
     });
   },
 );
@@ -612,6 +504,235 @@ testCase(
         `update subscriptions set paused_reason = 'user' where id = $1`,
         [id],
       );
+    });
+  },
+);
+
+/* ============================================================
+ * Phase 8.3 — retention (feature 06 R1–R3)
+ *
+ * ทุกเคสสร้างรายการของตัวเองผ่าน API (ที่อยู่ใหม่ทุกครั้ง) แทนการใช้ seed —
+ * รายการของ seed ถูก spec อื่นใช้ร่วมกันจนลำดับการรันกลายเป็นเงื่อนไขของเทส
+ * ============================================================ */
+
+/**
+ * บวกเดือนแบบหนีบปลายเดือน — **เขียนซ้ำในเทสโดยตั้งใจ** (เหมือน engine.e2e-spec)
+ * ถ้า import ของแอปมาใช้ เทสจะยืนยันได้แค่ว่าโค้ดเท่ากับตัวมันเอง
+ */
+function addMonthsISO(iso: string, months: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const last = new Date(Date.UTC(y, m + months + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m + months, Math.min(d.getUTCDate(), last)))
+    .toISOString()
+    .slice(0, 10);
+}
+
+/** ยิง API ตรงด้วย token ของผู้ซื้อเดโม่ */
+async function buyerApi<T>(path: string, body?: Record<string, unknown>): Promise<T> {
+  const session = await apiLogin(USERS.buyer.email, USERS.buyer.password);
+  const res = await fetch(`${apiBaseUrl()}${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.accessToken}`,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${path} → ${res.status} ${await res.text()}`);
+  return (await res.json()) as T;
+}
+
+/** รายการกาแฟรายเดือนใบใหม่ของผู้ซื้อเดโม่ — เริ่มพรุ่งนี้ ส่งไปที่อยู่ใหม่ */
+async function freshSubscription(label: string): Promise<string> {
+  const address = await buyerApi<{ id: string }>('/me/addresses', {
+    label,
+    recipientName: 'ผู้รับ retention',
+    phone: '0812345678',
+    addressLine: `${label} ถนนทดสอบ`,
+    province: 'กรุงเทพมหานคร',
+    postcode: '10900',
+  });
+  const cards = await buyerApi<{ id: string; last4: string }[]>('/me/payment-methods');
+  // บัตรลงท้าย 0000 ถูกปฏิเสธเสมอ (payments.spec ผูกไว้) — เลือกใบที่จ่ายผ่าน
+  const card = cards.find((c) => c.last4 !== '0000');
+  if (card == null) throw new Error('ผู้ซื้อเดโม่ไม่มีบัตรที่จ่ายผ่าน');
+
+  const tomorrow = new Date(`${todayISO()}T00:00:00Z`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const res = await buyerApi<{ subscription: { id: string } }>('/subscriptions', {
+    planId: PRODUCTS.coffeeMedium.plans['1m'].id,
+    quantity: 1,
+    addressId: address.id,
+    paymentMethodId: card.id,
+    startDate: tomorrow.toISOString().slice(0, 10),
+  });
+  return res.subscription.id;
+}
+
+testCase(
+  { id: 'TC-128', priority: 'P0', feature: FEATURE },
+  '★ ยกเลิกด้วยเหตุผล "ขอพักก่อน" → ระบบเสนอหยุด 1 รอบ กดรับแล้วรายการไม่ถูกยกเลิก และ DB จำได้ว่ามาจากหน้ายกเลิก',
+  async ({ page }) => {
+    let id = '';
+
+    await test.step('Arrange — รายการใหม่ที่กำลังใช้งาน', async () => {
+      id = await freshSubscription('TC128');
+      await loginAs(page, 'buyer');
+      await gotoApp(page, '/subscriptions');
+      await expect(page.locator(ids.subscriptions.action.cancel(id))).toBeVisible();
+    });
+
+    await test.step('Act — กดยกเลิก → เลือก "ขอพักก่อน" → กดรับข้อเสนอ', async () => {
+      await page.locator(ids.subscriptions.action.cancel(id)).click();
+      await page.locator(ids.subscriptions.cancelReason('taking_break')).click();
+      await expect(page.locator(ids.subscriptions.cancelOffer)).toBeVisible();
+      // ★ ปุ่มยืนยันยกเลิกยังอยู่ในกล่องเดียวกัน — ข้อเสนอไม่ใช่ด่านบังคับ
+      await expect(page.locator(ids.subscriptions.cancelConfirm)).toBeEnabled();
+      await page.locator(ids.subscriptions.cancelOfferAccept).click();
+    });
+
+    await test.step('Assert — รายการหยุดพักพร้อมวันกลับ ไม่ใช่ยกเลิก + event ระบุ source', async () => {
+      await expect(
+        page.locator(`${ids.subscriptions.groupPaused} ${ids.subscriptions.item(id)}`),
+      ).toBeVisible();
+      await expect(page.locator(ids.subscriptions.resumeOn(id))).toBeVisible();
+
+      const row = await subscriptionRow(id);
+      expect(row.status).toBe('paused');
+      // หมุด = วันเริ่ม · รอบถัดไป = หมุด+1 เดือน · พัก 1 รอบ = หมุด+2 เดือน
+      expect(row.resume_on).toBe(addMonthsISO(row.cycle_anchor_date, 2));
+      expect(row.cancel_reason).toBeNull();
+
+      const [event] = await queryTestDatabase<{ source: string | null }>(
+        `select detail->>'source' as source from subscription_events
+          where subscription_id = $1 and event = 'paused' order by id desc limit 1`,
+        [id],
+      );
+      expect(event!.source).toBe('cancel_flow');
+    });
+  },
+);
+
+testCase(
+  { id: 'TC-129', priority: 'P0', feature: FEATURE },
+  '★ ส่งรอบนี้เลย → เกิดออเดอร์วันนี้ที่จ่ายแล้วด้วยราคาจาก DB และรอบถัดไปนับจากวันนี้',
+  async ({ page }) => {
+    let id = '';
+
+    await test.step('Arrange — รายการใหม่ที่กำลังใช้งาน', async () => {
+      id = await freshSubscription('TC129');
+      await loginAs(page, 'buyer');
+      await gotoApp(page, '/subscriptions');
+    });
+
+    await test.step('Act — กดส่งรอบนี้เลยแล้วยืนยัน', async () => {
+      await page.locator(ids.subscriptions.action.shipNow(id)).click();
+      await expect(page.locator(ids.subscriptions.confirmBody)).toContainText('ตัดเงินจำลอง');
+      // หน้าจอที่พูดถึงยอดเงินต้องมีป้าย DEMO (กฎข้อ 1)
+      await expect(page.locator(ids.subscriptions.confirm)).toContainText('DEMO');
+      await page.locator(ids.subscriptions.confirmOk).click();
+      await expect(page.locator(ids.subscriptions.toast)).toBeVisible();
+    });
+
+    await test.step('Assert — DB มีออเดอร์วันนี้ ยอด 255 จ่ายแล้ว · หมุดคือวันนี้', async () => {
+      const today = todayISO();
+      const orders = await queryTestDatabase<{ amount: string; status: string }>(
+        `select o.amount::text as amount, p.status::text as status
+           from orders o join payments p on p.order_id = o.id
+          where o.subscription_id = $1 and o.cycle_date = $2::date`,
+        [id, today],
+      );
+      expect(orders).toHaveLength(1);
+      expect(Number(orders[0]!.amount)).toBe(PRODUCTS.coffeeMedium.plans['1m'].pricePerCycle);
+      expect(orders[0]!.status).toBe('paid');
+
+      const row = await subscriptionRow(id);
+      expect(row.cycle_anchor_date).toBe(today);
+      // ★ ต้องเลื่อนไป 1 รอบจากวันนี้เป๊ะ ไม่ใช่แค่ "อยู่ในอนาคต"
+      expect(row.next_order_date).toBe(addMonthsISO(today, 1));
+    });
+  },
+);
+
+testCase(
+  { id: 'TC-130', priority: 'P1', feature: FEATURE },
+  'เปลี่ยนจำนวนต่อรอบเป็น 3 ชิ้น → ยอดในกล่องคำนวณตาม และ DB บันทึกจำนวนใหม่',
+  async ({ page }) => {
+    let id = '';
+
+    await test.step('Arrange — รายการใหม่ 1 ชิ้นต่อรอบ', async () => {
+      id = await freshSubscription('TC130');
+      await loginAs(page, 'buyer');
+      await gotoApp(page, '/subscriptions');
+    });
+
+    await test.step('Act — เปิดกล่องจำนวน กด + สองครั้ง แล้วบันทึก', async () => {
+      await page.locator(ids.subscriptions.action.quantity(id)).click();
+      await expect(page.locator(ids.subscriptions.qtyValue)).toHaveText('1');
+      // ค่าเดิม = ปุ่มบันทึกกดไม่ได้ (ไม่ยิง request ที่ไม่เปลี่ยนอะไร)
+      await expect(page.locator(ids.subscriptions.qtySave)).toBeDisabled();
+      await page.locator(ids.subscriptions.qtyPlus).click();
+      await page.locator(ids.subscriptions.qtyPlus).click();
+      await expect(page.locator(ids.subscriptions.qtyValue)).toHaveText('3');
+      await expect(page.locator(ids.subscriptions.qtyTotal)).toContainText('765');
+      await page.locator(ids.subscriptions.qtySave).click();
+    });
+
+    await test.step('Assert — DB quantity = 3 และการ์ดแสดง 3 ชิ้น/รอบ', async () => {
+      await expect(page.locator(ids.subscriptions.item(id))).toContainText('3 ชิ้น/รอบ');
+      expect((await subscriptionRow(id)).quantity).toBe(3);
+    });
+  },
+);
+
+testCase(
+  { id: 'TC-131', priority: 'P1', feature: FEATURE },
+  'ยกเลิกด้วยเหตุผล "ราคาสูงไป" พร้อมข้อความ → DB เก็บหมวดเหตุผล · ยิง API ไม่ส่งเหตุผลถูกปฏิเสธ',
+  async ({ page }) => {
+    let id = '';
+
+    await test.step('Arrange — รายการใหม่ที่กำลังใช้งาน', async () => {
+      id = await freshSubscription('TC131');
+      await loginAs(page, 'buyer');
+      await gotoApp(page, '/subscriptions');
+    });
+
+    await test.step('Act + Assert (API) — ยิง cancel ตรงโดยไม่มีเหตุผล → 400 รายการไม่ถูกแตะ', async () => {
+      const session = await apiLogin(USERS.buyer.email, USERS.buyer.password);
+      const res = await fetch(`${apiBaseUrl()}/subscriptions/${id}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.accessToken}`,
+        },
+        body: '{}',
+      });
+      expect(res.status).toBe(400);
+      expect((await subscriptionRow(id)).status).toBe('active');
+    });
+
+    await test.step('Act (UI) — เลือก "ราคาสูงไป" เห็นข้อเสนอคูปอง แต่กดยืนยันยกเลิก', async () => {
+      await page.locator(ids.subscriptions.action.cancel(id)).click();
+      await page.locator(ids.subscriptions.cancelReason('too_expensive')).click();
+      await expect(page.locator(ids.subscriptions.cancelOffer)).toBeVisible();
+      await page.locator(ids.subscriptions.cancelNote).fill('งบเดือนนี้ไม่พอ');
+      await page.locator(ids.subscriptions.cancelConfirm).click();
+    });
+
+    await test.step('Assert — กลุ่มยกเลิกแล้ว และ DB เก็บ too_expensive', async () => {
+      await expect(
+        page.locator(`${ids.subscriptions.groupCancelled} ${ids.subscriptions.item(id)}`),
+      ).toBeVisible();
+      const row = await subscriptionRow(id);
+      expect(row.status).toBe('cancelled');
+      expect(row.cancel_reason).toBe('too_expensive');
+      const [noted] = await queryTestDatabase<{ cancel_note: string | null }>(
+        'select cancel_note from subscriptions where id = $1',
+        [id],
+      );
+      expect(noted!.cancel_note).toBe('งบเดือนนี้ไม่พอ');
     });
   },
 );

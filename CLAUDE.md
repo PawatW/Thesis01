@@ -125,10 +125,11 @@ c:\Thesis\
 - Feature ที่มี flow (checkout, pause/skip) ต้องไล่กดจริงบน web อย่างน้อย 1 รอบ
 - **แตะ auth / payment / upload / endpoint ใหม่ เมื่อไหร่ → ไล่ [security-rules.md](docs/security-rules.md) (สั่ง `/sec-check`) ก่อนปิดงานเสมอ**
 - **endpoint ใหม่ต้องมี e2e test อย่างน้อย 3 เคส**: สำเร็จ · ไม่ใช่เจ้าของ (403) · สถานะผิด (409) — ตามตารางใน [testing.md §3](docs/testing.md) มิฉะนั้นถือว่ายังไม่เสร็จ
-- **feature ใหม่ที่มีหน้าจอต้องมี Playwright test (ชั้น L4) อย่างน้อย 1 เคสของเส้นทางสำเร็จ** — ตามตารางบังคับใน [testing.md §3.1](docs/testing.md) · flow ที่แตะเงินหรือเปลี่ยนสถานะต้องยืนยันผลใน DB ด้วย ไม่ใช่แค่ตัวเลขบนจอ
+- **Playwright (ชั้น L4) บังคับเฉพาะ flow ที่แตะเงินหรือเปลี่ยนสถานะ** (สมัคร/จ่าย/คูปอง/pause/cancel/ยืนยันรับของ ฯลฯ) — อย่างน้อย 1 เคสเส้นทางสำเร็จ **ที่ยืนยันผลใน DB** ไม่ใช่แค่ตัวเลขบนจอ · หน้าจออื่นไม่บังคับ ([testing.md §3.1](docs/testing.md))
+  - **อย่าเขียน L4 ซ้ำกับ L2** — validation ของฟอร์ม, 403/404/409, ยิง API ตรงข้าม UI, กัน enumeration พิสูจน์ที่ supertest พอ (ลดลงจาก 131 → 92 เคสเมื่อ 2026-11-21)
   - selector ใช้ `#id` จริงจาก component เท่านั้น (ห้ามจับด้วยข้อความไทยหรือลำดับปุ่ม) — เพิ่ม prop `id` ที่ component ก่อน แล้วลงทะเบียนใน `e2e/helpers/selectors.ts`
   - ทุกเคสห่อด้วย `testCase({ id, priority, feature }, …)` · รหัส TC ห้ามซ้ำแม้เคสเก่าถูกลบไปแล้ว
-  - `cd e2e && npm run test:e2e` ต้องเขียว แล้ว commit `e2e/reports/report.md` ไปในรอบเดียวกัน
+  - ระหว่างทำงานรันเฉพาะ spec ที่แก้ (`npm run test:e2e -- specs/<feature>.spec.ts`) · **รันทั้งชุดให้เขียว + commit `e2e/reports/report.md`** เมื่อปิด phase หรือแก้ของที่หลาย flow ใช้ร่วม (auth, layout, seed)
 - แก้ schema: `npx prisma migrate dev --name <ชื่อ>` แล้วรัน test ใหม่ทั้งชุด
 - เสร็จ feature ไหน → ติ๊ก checkbox ใน roadmap ของ project-plan.md
 

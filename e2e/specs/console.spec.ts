@@ -6,7 +6,7 @@
  * ตัวสลับโหมดหาย (ถ้าหาย บัญชีที่มีสองบทบาทจะออกจากคอนโซลไม่ได้เลย)
  */
 import { testCase, test, expect } from '../helpers/test-case';
-import { gotoApp, loginAs, loginThroughUi, expectSignedOut } from '../helpers/login';
+import { gotoApp, loginAs, loginThroughUi } from '../helpers/login';
 import * as ids from '../helpers/selectors';
 import { DEMO_PASSWORD, SHOPS, USERS } from '../helpers/test-data';
 import { queryTestDatabase } from '../setup/database';
@@ -37,40 +37,6 @@ testCase(
       );
       expect(row!.name).toBe(SHOPS.beanStory.name);
       await expect(page.locator(ids.shell.brand)).toHaveText(row!.name);
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-086', priority: 'P1', feature: FEATURE },
-  'บัญชีผู้ดูแลล็อกอินแล้วตกที่คอนโซลผู้ดูแล',
-  async ({ page }) => {
-    await test.step('Act — ล็อกอินผ่านฟอร์มจริงด้วยบัญชีผู้ดูแล', async () => {
-      await loginThroughUi(page, { email: USERS.admin.email, password: DEMO_PASSWORD });
-    });
-
-    await test.step('Assert — เมนูผู้ดูแลครบ และป้ายบอกโหมดถูกต้อง', async () => {
-      await expect(page.locator(ids.admin.navOverview)).toBeVisible({ timeout: 20_000 });
-      await expect(page.locator(ids.admin.navEngine)).toBeVisible();
-      await expect(page.locator(ids.shell.role)).toHaveText('โหมดผู้ดูแลระบบ');
-      await expect(page.locator(ids.admin.statUsers)).toBeVisible();
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-087', priority: 'P1', feature: FEATURE },
-  'บัญชีผู้ซื้อล้วนได้คอนโซลผู้ซื้อ และไม่มีปุ่มสลับไปโหมดที่ตัวเองไม่มี',
-  async ({ page }) => {
-    await test.step('Act — ล็อกอินผ่านฟอร์มจริงด้วยบัญชีผู้ซื้อ', async () => {
-      await loginThroughUi(page, { email: USERS.buyer.email, password: DEMO_PASSWORD });
-    });
-
-    await test.step('Assert — อยู่หน้าผู้ซื้อ และไม่มีทางลัดเข้าโหมดร้าน/ผู้ดูแล', async () => {
-      await expect(page.locator(ids.home.greeting)).toBeVisible({ timeout: 20_000 });
-      await expect(page.locator(ids.shell.navBuyer.home)).toBeVisible();
-      await expect(page.locator(ids.shell.switchTo('seller'))).toHaveCount(0);
-      await expect(page.locator(ids.shell.switchTo('admin'))).toHaveCount(0);
     });
   },
 );
@@ -150,23 +116,6 @@ testCase(
       await queryTestDatabase('delete from notifications where id = any($1::int[])', [
         [sellerNotiId, buyerNotiId],
       ]);
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-090', priority: 'P2', feature: FEATURE },
-  'ออกจากระบบได้จากคอนโซลร้านโดยตรง ไม่ต้องเดินย้อนไปหน้าโปรไฟล์ของผู้ซื้อ',
-  async ({ page }) => {
-    await test.step('Arrange — เข้าคอนโซลร้าน', async () => {
-      await loginAs(page, 'seller');
-      await gotoApp(page, '/(seller)');
-      await expect(page.locator(ids.shell.navSeller.overview)).toBeVisible();
-    });
-
-    await test.step('Act/Assert — กดออกจากระบบแล้วกลับไปหน้าล็อกอิน', async () => {
-      await page.locator(ids.shell.signOut).click();
-      await expectSignedOut(page);
     });
   },
 );

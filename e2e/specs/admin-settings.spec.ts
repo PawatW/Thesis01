@@ -221,22 +221,4 @@ testCase(
     });
   },
 );
-
-testCase(
-  { id: 'TC-105', priority: 'P1', feature: FEATURE },
-  'บัญชีที่ไม่ใช่ผู้ดูแลเปิดหน้าตั้งค่าเมลและหน้า log ไม่ได้',
-  async ({ page }) => {
-    await test.step('Act/Assert — ผู้ซื้อเปิด /settings แล้วถูกพากลับหน้าผู้ซื้อ', async () => {
-      await loginAs(page, 'buyer');
-      await gotoApp(page, '/settings');
-      await expect(page.locator(ids.home.greeting)).toBeVisible({ timeout: 20_000 });
-      await expect(page.locator(ids.mailSettings.save)).toHaveCount(0);
-    });
-
-    await test.step('Act/Assert — เปิด /logs ก็ถูกพากลับเหมือนกัน', async () => {
-      await gotoApp(page, '/logs');
-      await expect(page.locator(ids.home.greeting)).toBeVisible({ timeout: 20_000 });
-      await expect(page.locator(ids.adminLogs.tab('audit'))).toHaveCount(0);
-    });
-  },
-);
+

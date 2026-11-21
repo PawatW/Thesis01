@@ -16,7 +16,6 @@ import * as ids from '../helpers/selectors';
 import {
   ADDRESSES,
   ORDERS,
-  SHOPS,
   SUBSCRIPTIONS,
   USERS,
   DEMO_PASSWORD,
@@ -62,8 +61,8 @@ const paymentRow = async (orderId: string): Promise<PaymentRow> => {
  */
 async function seedPendingOrder(cycleDaysAgo: number): Promise<string> {
   const rows = await queryTestDatabase<{ id: string }>(
-    `insert into orders (subscription_id, buyer_id, cycle_date, status, amount, address_snapshot, created_at)
-     select subscription_id, buyer_id, current_date - $2::int, 'pending', 255, address_snapshot, now()
+    `insert into orders (subscription_id, buyer_id, cycle_date, status, amount, quantity, address_snapshot, created_at)
+     select subscription_id, buyer_id, current_date - $2::int, 'pending', 255, 1, address_snapshot, now()
        from orders where id = $1
      returning id`,
     [ORDERS.coffeeRecent.id, cycleDaysAgo],
@@ -376,43 +375,6 @@ testCase(
 );
 
 testCase(
-  { id: 'TC-067', priority: 'P1', feature: FEATURE },
-  'ผู้ซื้อเห็นเหตุผลที่ร้านยกเลิกและป้ายคืนเงิน DEMO แทน stepper',
-  async ({ page }) => {
-    let orderId = '';
-    const reason = 'ปิดร้านชั่วคราวช่วงสงกรานต์';
-
-    await test.step('Arrange — ร้านยกเลิกออเดอร์ใบหนึ่งผ่าน API (ทดสอบฝั่งผู้ซื้อ)', async () => {
-      orderId = await seedPendingOrder(6);
-      const seller = await apiLogin(USERS.seller.email, DEMO_PASSWORD);
-      const res = await apiPost(`/seller/orders/${orderId}/cancel`, seller.accessToken, {
-        reason,
-      });
-      expect(res.status).toBe(200);
-
-      await loginAs(page, 'buyer');
-      await gotoApp(page, `/(buyer)/orders/${orderId}`);
-    });
-
-    await test.step('Assert — banner ยกเลิก + เหตุผล + ป้ายคืนเงิน · ไม่มี stepper ให้เข้าใจผิด', async () => {
-      await expect(page.locator(ids.orders.cancelBanner)).toBeVisible();
-      await expect(page.locator(ids.orders.cancelReason)).toContainText(reason);
-      await expect(page.locator(ids.orders.refundBadge)).toContainText('คืนเงินจำลองแล้ว');
-      await expect(page.locator(ids.orders.stepper)).toHaveCount(0);
-      // ยกเลิกแล้วไม่มีของให้ยืนยันและไม่มีอะไรให้แจ้ง
-      await expect(page.locator(ids.orders.confirm)).toHaveCount(0);
-      await expect(page.locator(ids.orders.report)).toHaveCount(0);
-    });
-
-    await test.step('Assert — ป้ายคืนเงินโผล่ตั้งแต่หน้ารายการ (แท็บสำเร็จ/ยกเลิก)', async () => {
-      await gotoApp(page, '/(buyer)/orders');
-      await page.locator(ids.orders.tab('done')).click();
-      await expect(page.locator(ids.orders.refundedPill(orderId))).toBeVisible();
-    });
-  },
-);
-
-testCase(
   { id: 'TC-068', priority: 'P1', feature: FEATURE },
   'ร้านตอบเคสปัญหาจากแท็บ "ปัญหา" แล้วผู้ซื้อเห็นหมายเหตุบนออเดอร์ของตัวเอง',
   async ({ page }) => {
@@ -562,20 +524,4 @@ testCase(
     });
   },
 );
-
-testCase(
-  { id: 'TC-070', priority: 'P2', feature: FEATURE },
-  'ผู้ใช้คนอื่นเปิดออเดอร์ของเราไม่ได้ — หน้าจอบอกว่าไม่พบ ไม่ใช่แสดงข้อมูล',
-  async ({ page }) => {
-    await test.step('Arrange — ล็อกอินด้วยบัญชีอื่น (ร้านค้า) แล้วเดาลิงก์ออเดอร์ของผู้ซื้อ', async () => {
-      await loginAs(page, 'seller');
-      await gotoApp(page, `/(buyer)/orders/${ORDERS.coffeeOld.id}`);
-    });
-
-    await test.step('Assert — เห็นสถานะ "ไม่พบออเดอร์นี้" และไม่มีข้อมูลผู้รับหลุดออกมา', async () => {
-      await expect(page.locator(ids.orders.notFound)).toBeVisible();
-      await expect(page.locator(ids.orders.address)).toHaveCount(0);
-      await expect(page.locator(ids.orders.detail)).toHaveCount(0);
-    });
-  },
-);
+

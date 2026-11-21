@@ -16,7 +16,7 @@ import {
   loginThroughUi,
 } from '../helpers/login';
 import * as ids from '../helpers/selectors';
-import { CANARY_DISPLAY_NAME, DEMO_PASSWORD, USERS, uniqueEmail } from '../helpers/test-data';
+import { CANARY_DISPLAY_NAME, USERS, uniqueEmail } from '../helpers/test-data';
 import { queryTestDatabase } from '../setup/database';
 
 const FEATURE = '01 — Auth';
@@ -64,55 +64,6 @@ testCase(
 );
 
 testCase(
-  { id: 'TC-003', priority: 'P1', feature: FEATURE },
-  'อีเมลที่ไม่มีในระบบได้ข้อความเดียวกับรหัสผ่านผิด (กัน user enumeration)',
-  async ({ page }) => {
-    let missingEmailMessage = '';
-    let wrongPasswordMessage = '';
-
-    await test.step('Arrange — เตรียมอีเมลที่ไม่มีอยู่จริง', async () => {
-      await gotoApp(page, '/login');
-    });
-
-    await test.step('Act — ลองทั้งอีเมลที่ไม่มี และรหัสผ่านผิดของอีเมลที่มีจริง', async () => {
-      await loginThroughUi(page, { email: uniqueEmail('ghost'), password: DEMO_PASSWORD });
-      await expect(page.locator(ids.login.formError)).toBeVisible();
-      missingEmailMessage = (await page.locator(ids.login.formError).innerText()).trim();
-
-      await loginThroughUi(page, { email: USERS.buyer.email, password: 'WrongPassword123!' });
-      await expect(page.locator(ids.login.formError)).toBeVisible();
-      wrongPasswordMessage = (await page.locator(ids.login.formError).innerText()).trim();
-    });
-
-    await test.step('Assert — ข้อความต้องเหมือนกันเป๊ะ ไม่บอกว่าอีเมลมีในระบบหรือไม่', () => {
-      expect(missingEmailMessage).not.toBe('');
-      expect(missingEmailMessage).toBe(wrongPasswordMessage);
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-004', priority: 'P2', feature: FEATURE },
-  'อีเมลผิดรูปแบบถูกจับตั้งแต่ยังไม่ยิง API',
-  async ({ page }) => {
-    await test.step('Arrange — เปิดหน้าเข้าสู่ระบบ', async () => {
-      await gotoApp(page, '/login');
-    });
-
-    await test.step('Act — ใส่ข้อความที่ไม่ใช่อีเมลแล้วกดส่ง', async () => {
-      await page.locator(ids.login.email).fill('ไม่ใช่อีเมล');
-      await page.locator(ids.login.password).fill(DEMO_PASSWORD);
-      await page.locator(ids.login.submit).click();
-    });
-
-    await test.step('Assert — ขึ้น error ที่ช่องอีเมล ไม่ใช่ error ระดับฟอร์ม', async () => {
-      await expect(page.locator(ids.login.emailError)).toBeVisible();
-      await expect(page.locator(ids.login.formError)).toHaveCount(0);
-    });
-  },
-);
-
-testCase(
   { id: 'TC-005', priority: 'P0', feature: FEATURE },
   'สมัครสมาชิกใหม่แล้วเข้าใช้งานได้ทันทีโดยไม่ต้องล็อกอินซ้ำ',
   async ({ page }) => {
@@ -136,51 +87,6 @@ testCase(
       await expectSignedIn(page);
       await expect(page.locator(ids.home.greeting)).toContainText(displayName);
       await expect(page.locator(ids.home.subsEmpty)).toBeVisible();
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-006', priority: 'P1', feature: FEATURE },
-  'สมัครด้วยรหัสผ่านสั้นเกินไปถูกปฏิเสธที่ช่องรหัสผ่าน',
-  async ({ page }) => {
-    await test.step('Arrange — เปิดหน้าสมัครสมาชิก', async () => {
-      await gotoApp(page, '/register');
-      await expect(page.locator(ids.register.submit)).toBeVisible();
-    });
-
-    await test.step('Act — กรอกรหัสผ่านสั้นกว่าที่กำหนด', async () => {
-      await page.locator(ids.register.name).fill('ผู้ใช้ทดสอบ');
-      await page.locator(ids.register.email).fill(uniqueEmail('short'));
-      await page.locator(ids.register.password).fill('123');
-      await page.locator(ids.register.submit).click();
-    });
-
-    await test.step('Assert — ขึ้น error ที่ช่องรหัสผ่าน และยังอยู่หน้าสมัคร', async () => {
-      await expect(page.locator(ids.register.passwordError)).toBeVisible();
-      await expect(page.locator(ids.register.submit)).toBeVisible();
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-007', priority: 'P1', feature: FEATURE },
-  'สมัครด้วยอีเมลที่มีในระบบแล้วถูกปฏิเสธ',
-  async ({ page }) => {
-    await test.step('Arrange — เปิดหน้าสมัครสมาชิก', async () => {
-      await gotoApp(page, '/register');
-    });
-
-    await test.step('Act — ใช้อีเมลของบัญชีเดโม่ที่มีอยู่แล้ว', async () => {
-      await page.locator(ids.register.name).fill('ผู้ใช้ซ้ำ');
-      await page.locator(ids.register.email).fill(USERS.buyer.email);
-      await page.locator(ids.register.password).fill('E2ePassword2026!');
-      await page.locator(ids.register.submit).click();
-    });
-
-    await test.step('Assert — ขึ้น error ระดับฟอร์มและไม่ได้เข้าระบบ', async () => {
-      await expect(page.locator(ids.register.formError)).toBeVisible();
-      await expect(page.locator(ids.home.greeting)).toHaveCount(0);
     });
   },
 );
@@ -313,51 +219,6 @@ testCase(
 );
 
 testCase(
-  { id: 'TC-095', priority: 'P1', feature: FEATURE },
-  '★ อีเมลที่ไม่มีในระบบได้ข้อความเดียวกับอีเมลที่มีจริง และไม่มีตั๋วเกิดขึ้น (กัน user enumeration)',
-  async ({ page }) => {
-    const ghostEmail = uniqueEmail('ghost-forgot');
-    let realUser = { id: '', email: '' };
-    let realMessage = '';
-    let ghostMessage = '';
-
-    await test.step('Arrange — มีบัญชีจริงหนึ่งใบไว้เทียบ', async () => {
-      realUser = await registerThrowawayUser('forgot-compare');
-    });
-
-    await test.step('Act — ขอลิงก์ด้วยอีเมลจริง แล้วขอด้วยอีเมลที่ไม่มีในระบบ', async () => {
-      await gotoApp(page, '/forgot-password');
-      await page.locator(ids.forgotPassword.email).fill(realUser.email);
-      await page.locator(ids.forgotPassword.submit).click();
-      await expect(page.locator(ids.forgotPassword.sent)).toBeVisible();
-      realMessage = (await page.locator(ids.forgotPassword.sent).innerText()).trim();
-
-      await gotoApp(page, '/forgot-password');
-      await page.locator(ids.forgotPassword.email).fill(ghostEmail);
-      await page.locator(ids.forgotPassword.submit).click();
-      await expect(page.locator(ids.forgotPassword.sent)).toBeVisible();
-      ghostMessage = (await page.locator(ids.forgotPassword.sent).innerText()).trim();
-    });
-
-    await test.step('Assert — ถ้อยคำเหมือนกันทุกตัวอักษร (ต่างแค่อีเมลที่ผู้ใช้พิมพ์เอง)', () => {
-      const stripEmail = (text: string, email: string) => text.split(email).join('{อีเมล}');
-      expect(realMessage).not.toBe('');
-      expect(stripEmail(ghostMessage, ghostEmail)).toBe(stripEmail(realMessage, realUser.email));
-    });
-
-    await test.step('Assert — ไม่มีตั๋วของอีเมลที่ไม่มีในระบบ (ยืนยันว่าไม่ได้แค่ซ่อนบนจอ)', async () => {
-      const rows = await queryTestDatabase(
-        `select 1 from password_reset_tokens t
-         join users u on u.id = t.user_id
-         where u.email = $1`,
-        [ghostEmail],
-      );
-      expect(rows).toHaveLength(0);
-    });
-  },
-);
-
-testCase(
   { id: 'TC-096', priority: 'P0', feature: FEATURE },
   '★ ตั้งรหัสผ่านใหม่จากลิงก์ในอีเมล → รหัสใหม่ล็อกอินได้ · ตั๋วถูกปิด · session เดิมถูกเพิกถอนใน DB',
   async ({ page }) => {
@@ -406,68 +267,6 @@ testCase(
 
       await loginThroughUi(page, { email: user.email, password: newPassword });
       await expectSignedIn(page);
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-097', priority: 'P1', feature: FEATURE },
-  'ลิงก์ที่ใช้ไปแล้วและลิงก์ที่หมดอายุขึ้นข้อความเดียวกัน และไม่เปลี่ยนรหัสผ่าน',
-  async ({ page }) => {
-    let user = { id: '', email: '' };
-    let usedMessage = '';
-    let expiredMessage = '';
-
-    await test.step('Arrange — บัญชีใหม่ พร้อมตั๋วที่ใช้ไปแล้ว 1 ใบ และตั๋วหมดอายุ 1 ใบ', async () => {
-      user = await registerThrowawayUser('reset-dead');
-    });
-
-    await test.step('Act — ลองตั้งรหัสใหม่ด้วยตั๋วที่ใช้ไปแล้ว', async () => {
-      const used = await seedResetToken(user.id, { used: true });
-      await gotoApp(page, `/reset-password?token=${encodeURIComponent(used)}`);
-      await page.locator(ids.resetPassword.password).fill('ShouldNotWork2026!');
-      await page.locator(ids.resetPassword.confirm).fill('ShouldNotWork2026!');
-      await page.locator(ids.resetPassword.submit).click();
-      await expect(page.locator(ids.resetPassword.formError)).toBeVisible();
-      usedMessage = (await page.locator(ids.resetPassword.formError).innerText()).trim();
-    });
-
-    await test.step('Act — ลองตั้งรหัสใหม่ด้วยตั๋วที่หมดอายุ', async () => {
-      const expired = await seedResetToken(user.id, { expired: true });
-      await gotoApp(page, `/reset-password?token=${encodeURIComponent(expired)}`);
-      await page.locator(ids.resetPassword.password).fill('ShouldNotWork2026!');
-      await page.locator(ids.resetPassword.confirm).fill('ShouldNotWork2026!');
-      await page.locator(ids.resetPassword.submit).click();
-      await expect(page.locator(ids.resetPassword.formError)).toBeVisible();
-      expiredMessage = (await page.locator(ids.resetPassword.formError).innerText()).trim();
-    });
-
-    await test.step('Assert — ข้อความเดียวกัน (ไม่ยืนยันว่าตั๋วใบนั้นเคยมีจริงไหม)', () => {
-      expect(usedMessage).not.toBe('');
-      expect(expiredMessage).toBe(usedMessage);
-    });
-
-    await test.step('Assert — รหัสผ่านเดิมยังใช้ได้ ไม่มีอะไรถูกเปลี่ยน', async () => {
-      await loginThroughUi(page, { email: user.email, password: THROWAWAY_PASSWORD });
-      await expectSignedIn(page);
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-098', priority: 'P2', feature: FEATURE },
-  'เปิดหน้าตั้งรหัสผ่านใหม่โดยไม่มี token ได้หน้าอธิบาย ไม่ใช่จอขาว',
-  async ({ page }) => {
-    await test.step('Act — เปิด /reset-password ตรง ๆ (เหมือนลิงก์ถูกตัดตอนคัดลอก)', async () => {
-      await gotoApp(page, '/reset-password');
-    });
-
-    await test.step('Assert — บอกว่าลิงก์ไม่สมบูรณ์ และมีทางขอลิงก์ใหม่', async () => {
-      await expect(page.locator(ids.resetPassword.missingToken)).toBeVisible();
-      await expect(page.locator(ids.resetPassword.submit)).toHaveCount(0);
-
-      await page.locator(ids.resetPassword.requestAgain).click();
-      await expect(page.locator(ids.forgotPassword.submit)).toBeVisible();
     });
   },
 );

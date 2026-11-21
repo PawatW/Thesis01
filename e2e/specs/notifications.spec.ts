@@ -146,48 +146,4 @@ testCase(
     });
   },
 );
-
-testCase(
-  { id: 'TC-092', priority: 'P2', feature: FEATURE },
-  'ผูกบัตรใบเดิมซ้ำ → API ปฏิเสธ 409 และไม่มีแถวที่สองใน DB',
-  async ({ page }) => {
-    const card = TEST_CARDS.visa;
-
-    await test.step('Arrange — เปิดหน้าบัตรแล้วผูกบัตรใบแรก', async () => {
-      await loginAs(page, 'buyer');
-      await gotoApp(page, '/profile');
-      await page.locator(ids.profile.linkCards).click();
-      await expect(page.locator(ids.cards.number)).toBeVisible();
-
-      await page.locator(ids.cards.number).fill(card.number);
-      await page.locator(ids.cards.expiry).fill(CARD_EXPIRY_INPUT.future);
-      await page.locator(ids.cards.cvv).fill('123');
-      await page.locator(ids.cards.holder).fill('E2E DUP');
-      await page.locator(ids.cards.add).click();
-      await expect(page.locator(ids.cards.toast)).toBeVisible();
-    });
-
-    await test.step('Act — ผูกบัตรใบเดิมอีกครั้ง', async () => {
-      await page.locator(ids.cards.number).fill(card.number);
-      await page.locator(ids.cards.expiry).fill(CARD_EXPIRY_INPUT.future);
-      await page.locator(ids.cards.cvv).fill('123');
-      await page.locator(ids.cards.holder).fill('E2E DUP');
-      await page.locator(ids.cards.add).click();
-    });
-
-    await test.step('Assert — ขึ้นข้อความจาก API และ DB มีใบเดียว', async () => {
-      await expect(page.locator(ids.cards.formError)).toBeVisible();
-
-      const rows = await queryTestDatabase<{ id: string }>(
-        `select id from payment_methods where user_id = $1 and last4 = $2`,
-        [USERS.buyer.id, card.last4],
-      );
-      expect(rows).toHaveLength(1);
-
-      await test.step('Cleanup — ลบบัตรที่ใช้ในเคสนี้', async () => {
-        await page.locator(ids.cards.remove(rows[0]!.id)).click();
-        await expect(page.locator(ids.cards.item(rows[0]!.id))).toHaveCount(0);
-      });
-    });
-  },
-);
+

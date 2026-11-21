@@ -109,33 +109,6 @@ testCase(
 );
 
 testCase(
-  { id: 'TC-021', priority: 'P1', feature: FEATURE },
-  'หน้า checkout สรุปสินค้า รอบส่ง และจำนวนตรงกับที่เลือกมา',
-  async ({ page }) => {
-    await test.step('Arrange — เปิดหน้าสินค้าและเลือกแผนรายเดือน', async () => {
-      await loginAs(page, 'buyer');
-      await gotoApp(page, `/product/${PRODUCTS.coffeeMedium.id}`);
-      await page.locator(ids.product.plan('1m')).click();
-      await page.locator(ids.product.qtyIncrease).click();
-    });
-
-    await test.step('Act — กดสมัครเพื่อเข้าหน้า checkout', async () => {
-      await page.locator(ids.product.subscribe).click();
-      await expect(page.locator(ids.checkout.confirm)).toBeVisible();
-    });
-
-    await test.step('Assert — ชื่อสินค้า รอบส่ง จำนวน และยอดรวมตรงกับที่เลือก', async () => {
-      await expect(page.locator(ids.checkout.productName)).toHaveText(PRODUCTS.coffeeMedium.name);
-      await expect(page.locator(ids.checkout.meta)).toContainText('ทุกเดือน');
-      await expect(page.locator(ids.checkout.meta)).toContainText('2 ชิ้น/รอบ');
-
-      const expected = (PRODUCTS.coffeeMedium.plans['1m'].pricePerCycle * 2).toLocaleString('th-TH');
-      await expect(page.locator(ids.checkout.total)).toContainText(expected);
-    });
-  },
-);
-
-testCase(
   { id: 'TC-022', priority: 'P1', feature: FEATURE },
   'ผูกบัตรใหม่ในหน้าจ่ายเงินแล้วเลือกใช้ได้ทันที โดย DB เก็บแค่ 4 ตัวท้าย',
   async ({ page }) => {
@@ -204,36 +177,6 @@ testCase(
         await queryTestDatabase(
           `select id from payment_methods where holder_name = $1`,
           ['E2E BADSUM'],
-        ),
-      ).toHaveLength(0);
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-091', priority: 'P2', feature: FEATURE },
-  'บัตรที่หมดอายุแล้วถูกปฏิเสธที่ช่องวันหมดอายุ',
-  async ({ page }) => {
-    await test.step('Arrange — เข้าหน้า checkout', async () => {
-      await loginAs(page, 'buyer');
-      await gotoApp(page, `/checkout/${PRODUCTS.tissue.plans['2m'].id}`);
-      await expect(page.locator(ids.checkout.cardNumber)).toBeVisible();
-    });
-
-    await test.step('Act — กรอกวันหมดอายุที่ผ่านมาแล้ว', async () => {
-      await page.locator(ids.checkout.cardNumber).fill(TEST_CARDS.visa.number);
-      await page.locator(ids.checkout.cardExpiry).fill(CARD_EXPIRY_INPUT.past);
-      await page.locator(ids.checkout.cardCvv).fill('123');
-      await page.locator(ids.checkout.cardHolder).fill('E2E EXPIRED');
-      await page.locator(ids.checkout.cardAdd).click();
-    });
-
-    await test.step('Assert — ขึ้น error ใต้ช่องวันหมดอายุ และไม่มีแถวใหม่ใน DB', async () => {
-      await expect(page.locator(ids.checkout.cardExpiryError)).toBeVisible();
-      expect(
-        await queryTestDatabase(
-          `select id from payment_methods where holder_name = $1`,
-          ['E2E EXPIRED'],
         ),
       ).toHaveLength(0);
     });

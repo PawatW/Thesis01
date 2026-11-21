@@ -16,7 +16,6 @@ import {
   DEMO_PASSWORD,
   ORDERS,
   PRODUCTS,
-  SUBSCRIPTIONS,
   USERS,
 } from '../helpers/test-data';
 import { queryTestDatabase } from '../setup/database';
@@ -49,8 +48,8 @@ async function addCard(token: string, last4: string): Promise<string> {
 /** ออเดอร์ค้างจ่ายของร้าน Bean Story 1 ใบ (payment = failed ตาม CHECK lifecycle) */
 async function seedUnpaidOrder(cycleDaysAgo: number): Promise<string> {
   const rows = await queryTestDatabase<{ id: string }>(
-    `insert into orders (subscription_id, buyer_id, cycle_date, status, amount, address_snapshot, created_at)
-     select subscription_id, buyer_id, current_date - $2::int, 'pending', 255, address_snapshot, now()
+    `insert into orders (subscription_id, buyer_id, cycle_date, status, amount, quantity, address_snapshot, created_at)
+     select subscription_id, buyer_id, current_date - $2::int, 'pending', 255, 1, address_snapshot, now()
        from orders where id = $1
      returning id`,
     [ORDERS.coffeeRecent.id, cycleDaysAgo],
@@ -194,39 +193,4 @@ testCase(
     });
   },
 );
-
-testCase(
-  { id: 'TC-074', priority: 'P2', feature: FEATURE },
-  'ป้าย "ยังไม่ได้ชำระเงิน" ขึ้นตั้งแต่หน้ารายการ และรอบถัดไปของรายการไม่ขยับ',
-  async ({ page }) => {
-    let orderId = '';
-    let nextBefore = '';
-
-    await test.step('Arrange — สร้างออเดอร์ค้างจ่ายอีกใบแล้วเปิดหน้ารายการ', async () => {
-      orderId = await seedUnpaidOrder(8);
-      const [sub] = await queryTestDatabase<{ next_order_date: string }>(
-        'select next_order_date::text as next_order_date from subscriptions where id = $1',
-        [SUBSCRIPTIONS.coffeeMonthly.id],
-      );
-      nextBefore = sub!.next_order_date;
-
-      await loginAs(page, 'buyer');
-      await gotoApp(page, '/(buyer)/orders');
-    });
-
-    await test.step('Assert — ป้ายค้างชำระอยู่บนการ์ด และรอบถัดไปของรายการไม่ขยับ', async () => {
-      await expect(page.locator(ids.orders.unpaidPill(orderId))).toBeVisible();
-
-      const [sub] = await queryTestDatabase<{
-        status: string;
-        next_order_date: string;
-      }>(
-        `select status, next_order_date::text as next_order_date
-           from subscriptions where id = $1`,
-        [SUBSCRIPTIONS.coffeeMonthly.id],
-      );
-      expect(sub!.status).toBe('active');
-      expect(sub!.next_order_date).toBe(nextBefore);
-    });
-  },
-);
+

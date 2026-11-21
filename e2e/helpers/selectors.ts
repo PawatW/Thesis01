@@ -87,6 +87,19 @@ export const home = {
   /** ช่องค้นหาใน hero ของหน้าแรก (feature 02, 2026-08-30) — `SearchBar` จาก `@/components/SearchBar` */
   search: '#home-search',
   searchSubmit: '#home-search-submit',
+  /** หน้าแรกโฉมใหม่ตาม docs/mockups/home-redesign.html (2026-11-21) */
+  hero: '#home-hero',
+  heroCta: '#home-hero-cta',
+  /** "ดีลคุ้มเมื่อสมัครรับ" — การ์ดใช้ prefix `home-deal-` แยกจาก `home-product-` กัน id ซ้ำ */
+  deals: '#home-deals',
+  anyDealCard: '[id^="home-deal-"]',
+  tileManage: '#home-tile-manage',
+  tileCompare: '#home-tile-compare',
+  /** แผงขวา "รอบส่งถัดไป" — แถว `#home-sub-*` อยู่ข้างใน */
+  nextPanel: '#home-next-panel',
+  anySubscriptionRow: '[id^="home-sub-"]',
+  nextManage: '#home-next-manage',
+  monthSummary: '#home-month-summary',
 } as const;
 
 /** `anan/app/category/[id].tsx` */
@@ -199,7 +212,40 @@ export const subscriptions = {
     review: (id: string) => `#subs-action-review-${id}`,
     /** feature 18 — เปิดกล่องเลือกคูปองของรอบถัดไป */
     coupon: (id: string) => `#subs-action-coupon-${id}`,
+    /** Phase 8.3 — สร้างออเดอร์วันนี้ก่อนกำหนด (เปิดกล่องยืนยันเดิม `confirm*`) */
+    shipNow: (id: string) => `#subs-action-ship-now-${id}`,
+    /** Phase 8.3 — เปิดกล่องเปลี่ยนจำนวน (active และ paused/user) */
+    quantity: (id: string) => `#subs-action-quantity-${id}`,
   },
+  /** Phase 8.3 — "กลับมาส่ง <วัน>" บนการ์ดที่หยุดพักแบบมีกำหนด */
+  resumeOn: (id: string) => `#subs-resume-on-${id}`,
+  /**
+   * กล่องยกเลิกแบบบอกเหตุผล (`anan/src/features/subscriptions/RetentionSheets.tsx`)
+   * — ปุ่มยืนยันกดไม่ได้จนกว่าจะเลือกเหตุผล · ข้อเสนอขึ้นเฉพาะรายการ active
+   */
+  cancelModal: '#subs-cancel-modal',
+  cancelReason: (
+    reason: 'too_expensive' | 'too_much_stock' | 'taking_break' | 'quality' | 'switching' | 'other',
+  ) => `#subs-cancel-reason-${reason}`,
+  cancelOffer: '#subs-cancel-offer',
+  cancelOfferText: '#subs-cancel-offer-text',
+  cancelOfferAccept: '#subs-cancel-offer-accept',
+  cancelNote: '#subs-cancel-note',
+  cancelConfirm: '#subs-cancel-confirm',
+  cancelClose: '#subs-cancel-close',
+  /** กล่องหยุดชั่วคราว — 1/2/3 รอบ หรือ 'open' (ไม่มีกำหนด) */
+  pauseModal: '#subs-pause-modal',
+  pauseOption: (value: 1 | 2 | 3 | 'open') => `#subs-pause-option-${value}`,
+  pauseConfirm: '#subs-pause-confirm',
+  pauseClose: '#subs-pause-close',
+  /** กล่องเปลี่ยนจำนวน — ยอดต่อรอบคำนวณจากราคาที่ API ส่งมากับการ์ด */
+  qtyModal: '#subs-qty-modal',
+  qtyMinus: '#subs-qty-minus',
+  qtyPlus: '#subs-qty-plus',
+  qtyValue: '#subs-qty-value',
+  qtyTotal: '#subs-qty-total',
+  qtySave: '#subs-qty-save',
+  qtyClose: '#subs-qty-close',
   /** บรรทัดคูปองบนการ์ด — มีเฉพาะรายการที่จองคูปองไว้กับรอบถัดไปแล้ว */
   couponLine: (id: string) => `#subs-coupon-line-${id}`,
   confirm: '#subs-confirm',

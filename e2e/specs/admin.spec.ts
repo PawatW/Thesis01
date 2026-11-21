@@ -238,7 +238,7 @@ testCase(
 
     await test.step('Cleanup — ยกเลิกรายการที่สร้างไว้ ไม่ให้ค้างไปกวน spec อื่น', async () => {
       const buyer = await apiLogin(USERS.buyer.email, DEMO_PASSWORD);
-      await post(`/subscriptions/${subscriptionId}/cancel`, buyer.accessToken, {});
+      await post(`/subscriptions/${subscriptionId}/cancel`, buyer.accessToken, { reason: 'other' });
     });
   },
 );

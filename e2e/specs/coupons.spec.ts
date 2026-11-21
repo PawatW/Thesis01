@@ -18,7 +18,6 @@ import {
   COUPON_POLICIES,
   COUPONS,
   DEMO_PASSWORD,
-  PRODUCTS,
   SHOPS,
   SUBSCRIPTIONS,
   USERS,
@@ -327,69 +326,6 @@ testCase(
   },
 );
 
-testCase(
-  { id: 'TC-110', priority: 'P0', feature: FEATURE },
-  'ผู้ซื้อคนอื่นจองคูปองบนรายการของเราไม่ได้ แม้ยิง API ตรงข้าม UI',
-  async ({ page }) => {
-    void page;
-
-    await test.step('Arrange — ล็อกอินด้วยบัญชีที่ไม่ใช่เจ้าของรายการ', async () => {
-      // ไม่มีอะไรต้องเตรียมบนหน้าจอ — เคสนี้พิสูจน์ว่ากฎอยู่ที่ API ไม่ใช่ที่ปุ่ม
-    });
-
-    await test.step('Act/Assert — บัญชีร้านค้ายิง endpoint ของผู้ซื้อ → 404', async () => {
-      const stranger = await apiLogin(USERS.seller.email, DEMO_PASSWORD);
-      const res = await fetch(
-        `${apiBaseUrl()}/subscriptions/${SUBSCRIPTIONS.coffeeMonthly.id}/coupon`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${stranger.accessToken}`,
-          },
-          body: JSON.stringify({ couponId: COUPONS.fixed50.id }),
-        },
-      );
-      // 404 ไม่ใช่ 403 — 403 เป็นการยืนยันว่า id นี้มีอยู่จริง (enumeration)
-      expect(res.status).toBe(404);
-    });
-
-    await test.step('Assert — ★ ฐานข้อมูล ★ ยังมีใบจองเดิมใบเดียว ไม่มีใบของคนอื่นเพิ่ม', async () => {
-      const rows = await redemptionsOf(SUBSCRIPTIONS.coffeeMonthly.id);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]!.code).toBe(COUPONS.percent20.code);
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-111', priority: 'P0', feature: FEATURE },
-  'แนบยอดส่วนลดมาใน body ของ checkout → 400 (เงินห้ามมาจาก client)',
-  async ({ page }) => {
-    void page;
-
-    await test.step('Act/Assert — POST /subscriptions พร้อม discountAmount ถูกปฏิเสธที่ DTO', async () => {
-      const buyer = await apiLogin(USERS.buyer.email, DEMO_PASSWORD);
-      const res = await fetch(`${apiBaseUrl()}/subscriptions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${buyer.accessToken}`,
-        },
-        body: JSON.stringify({
-          planId: PRODUCTS.tissue.plans['2m'].id,
-          quantity: 1,
-          addressId: ADDRESSES.home.id,
-          paymentMethodId: '50000000-0000-4000-8000-000000000001',
-          startDate: '2027-01-01',
-          discountAmount: 999,
-        }),
-      });
-      expect(res.status).toBe(400);
-    });
-  },
-);
-
 // ==========================================================
 // Flow E — กฎเดียว: รอบเปลี่ยนโดยไม่เกิดออเดอร์ = คืนคูปอง
 // ==========================================================
@@ -628,52 +564,6 @@ testCase(
       expect(row!.applies_to_all_products).toBe(true);
       // ★ โควตาขยับได้จากการจองเท่านั้น ★ ไม่ใช่จากค่าที่ฟอร์มส่งมา
       expect(row!.in_use_count).toBe(0);
-    });
-  },
-);
-
-testCase(
-  { id: 'TC-117', priority: 'P0', feature: FEATURE },
-  '★ ร้านออกคูปองระดับแพลตฟอร์มไม่ได้ แม้ยิง API ตรงข้าม UI ★',
-  async ({ page }) => {
-    void page;
-    const title = `พยายามออกคูปองแพลตฟอร์ม ${Date.now()}`;
-
-    await test.step('Act/Assert — แนบ tier / shopId มากับ body → 400 ทั้งคู่', async () => {
-      const seller = await apiLogin(USERS.seller.email, DEMO_PASSWORD);
-      const body = {
-        code: `E2EBAD${String(Date.now()).slice(-6)}`,
-        title,
-        discountType: 'percent',
-        discountValue: 10,
-        startsAt: new Date().toISOString(),
-        endsAt: '2027-12-31T23:59:59+07:00',
-        appliesToAllProducts: true,
-      };
-
-      for (const extra of [
-        { tier: 'platform' },
-        { shopId: SHOPS.beanStory.id },
-      ]) {
-        const res = await fetch(`${apiBaseUrl()}/seller/coupons`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${seller.accessToken}`,
-          },
-          body: JSON.stringify({ ...body, ...extra }),
-        });
-        // `forbidNonWhitelisted` ตัดทิ้งตั้งแต่ DTO — ระดับมาจาก endpoint เท่านั้น
-        expect(res.status).toBe(400);
-      }
-    });
-
-    await test.step('Assert — ★ ฐานข้อมูล ★ ไม่มีคูปองใบนั้นเกิดขึ้นเลย', async () => {
-      const [row] = await queryTestDatabase<{ n: string }>(
-        'select count(*)::text as n from coupons where title = $1',
-        [title],
-      );
-      expect(Number(row!.n)).toBe(0);
     });
   },
 );
